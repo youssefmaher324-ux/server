@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!--
+  Defense-in-depth CSP at the document level. The stronger, authoritative
+  copy of these headers lives in vercel.json (see /server/README.md and
+  the deployment notes) — Vercel sends them as real HTTP response headers,
+  which a meta tag can't fully replace (e.g. it can't set X-Frame-Options
+  or Strict-Transport-Security), but this still helps if the page is ever
+  served from somewhere that doesn't apply vercel.json's headers.
+-->
+<!--
+  IMPORTANT: replace https: in connect-src below with your actual proxy's
+  origin once you know it, e.g. connect-src 'self' https://proxy.yourdomain.com
+  — a bare https: allows the page to call ANY https endpoint, which is far
+  looser than it needs to be. Left as https: only until CONFIG.PROXY_URL in
+  app.js is set to its final deployed value.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="no-referrer" />
+<title>Citrine Juice Co. — Cold-Pressed, Delivered Fresh</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;900&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============================= HEADER ============================= -->
+<header class="site-header">
+  <div class="header-inner">
+    <a href="#home" class="logo" data-nav="home">
+      <span class="logo-mark">🍊</span>
+      <span class="logo-text">CITRINE<span class="logo-sub">JUICE CO.</span></span>
+    </a>
+    <nav class="main-nav">
+      <a href="#home" data-nav="home">Home</a>
+      <a href="#shop" data-nav="shop">Shop</a>
+      <a href="#track" data-nav="track">Track Order</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-btn" id="searchToggle" aria-label="Search">🔍</button>
+      <button class="icon-btn cart-btn" id="cartToggle" aria-label="Cart">
+        🧺 <span class="cart-count" id="cartCount">0</span>
+      </button>
+    </div>
+  </div>
+  <div class="search-bar" id="searchBar">
+    <input type="text" id="searchInput" placeholder="Search cold-pressed juices, shots, smoothies…" />
+    <button id="searchClose" class="icon-btn">✕</button>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ============================= HOME VIEW ============================= -->
+  <section class="view" id="view-home">
+    <section class="hero">
+      <div class="hero-pulp-texture"></div>
+      <div class="hero-inner">
+        <p class="eyebrow-stamp">PRESSED THIS MORNING</p>
+        <h1 class="hero-title">JUICE<br>THAT TASTES<br>LIKE THE FARM</h1>
+        <p class="hero-sub">No sugar. No shortcuts. Just fruit, crushed cold and delivered to your door within the hour.</p>
+        <div class="hero-actions">
+          <a href="#shop" class="btn btn-primary" data-nav="shop">Shop the Press ↦</a>
+          <a href="#track" class="btn btn-ghost" data-nav="track">Track an Order</a>
+        </div>
+      </div>
+      <div class="crate-row" aria-hidden="true">
+        <span class="crate-badge">100% COLD-PRESSED</span>
+        <span class="crate-badge">ZERO ADDED SUGAR</span>
+        <span class="crate-badge">DELIVERED IN 45 MIN</span>
+      </div>
+    </section>
+
+    <section class="section-block">
+      <div class="section-head">
+        <h2>SHOP BY CRATE</h2>
+        <p>Every crate is a category — pick your press.</p>
+      </div>
+      <div class="category-rail" id="categoryRail">
+        <!-- populated by JS -->
+      </div>
+    </section>
+
+    <section class="section-block alt">
+      <div class="section-head">
+        <h2>TODAY'S PRESS</h2>
+        <p>Fresh products loaded live from the shop floor.</p>
+      </div>
+      <div class="product-grid" id="homeProductGrid">
+        <!-- populated by JS -->
+      </div>
+    </section>
+  </section>
+
+  <!-- ============================= SHOP VIEW ============================= -->
+  <section class="view" id="view-shop" hidden>
+    <div class="shop-header">
+      <h1>THE FULL PRESS</h1>
+      <div class="filter-row" id="filterRow">
+        <button class="chip active" data-filter="all">All</button>
+        <!-- category chips injected by JS -->
+      </div>
+    </div>
+    <div class="product-grid" id="shopProductGrid"></div>
+    <p class="empty-state" id="shopEmptyState" hidden>No juices match that search. Try another word or clear the filter.</p>
+  </section>
+
+  <!-- ============================= PRODUCT DETAIL VIEW ============================= -->
+  <section class="view" id="view-product" hidden>
+    <button class="back-link" data-nav="shop">← Back to shop</button>
+    <div class="product-detail" id="productDetail"><!-- populated by JS --></div>
+  </section>
+
+  <!-- ============================= CART DRAWER ============================= -->
+  <aside class="cart-drawer" id="cartDrawer">
+    <div class="cart-drawer-head">
+      <h2>YOUR CRATE</h2>
+      <button class="icon-btn" id="cartClose">✕</button>
+    </div>
+    <div class="cart-items" id="cartItems"></div>
+    <div class="cart-footer">
+      <div class="cart-total-row">
+        <span>Total</span>
+        <span id="cartTotal">EGP 0.00</span>
+      </div>
+      <button class="btn btn-primary btn-block" id="checkoutBtn" disabled>Checkout ↦</button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ============================= CHECKOUT VIEW ============================= -->
+  <section class="view" id="view-checkout" hidden>
+    <h1>CHECKOUT</h1>
+    <div class="checkout-grid">
+      <form class="checkout-form" id="checkoutForm">
+        <label>
+          Full Name
+          <input type="text" id="custName" required placeholder="Amina Youssef" />
+        </label>
+        <label>
+          Phone Number
+          <input type="tel" id="custPhone" required placeholder="01xxxxxxxxx" />
+        </label>
+        <label>
+          Notes for the driver (optional)
+          <textarea id="custNotes" rows="3" placeholder="Ring the bell, leave with doorman, extra ice…"></textarea>
+        </label>
+
+        <div class="terms-box">
+          <h3>Shop Rules</h3>
+          <ul class="terms-list">
+            <li>Orders can only be cancelled within 5 minutes of placing them.</li>
+            <li>After 5 minutes, cancellation is disabled and the order proceeds.</li>
+            <li>Wrong or unreachable phone numbers are the customer's responsibility.</li>
+            <li>Delivery time may vary with traffic, weather and order volume.</li>
+            <li>Orders cannot be modified once preparation has started.</li>
+          </ul>
+          <label class="terms-check">
+            <input type="checkbox" id="termsCheck" />
+            I have read and agree to the Terms &amp; Conditions.
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="placeOrderBtn" disabled>Place Order ↦</button>
+      </form>
+
+      <div class="checkout-summary">
+        <h3>Order Summary</h3>
+        <div id="checkoutItems"></div>
+        <div class="cart-total-row"><span>Total</span><span id="checkoutTotal">EGP 0.00</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= SUCCESS VIEW ============================= -->
+  <section class="view" id="view-success" hidden>
+    <div class="success-card">
+      <div class="success-stamp">ORDER CONFIRMED</div>
+      <h1>It's on the press.</h1>
+      <p>Save this ticket — your driver will ask for the verification code on arrival.</p>
+
+      <div class="ticket">
+        <div class="ticket-row">
+          <span>Order ID</span>
+          <strong id="successOrderId">—</strong>
+        </div>
+        <div class="ticket-tear"></div>
+        <div class="ticket-row code-row">
+          <span>Verification Code</span>
+          <strong id="successCode">—</strong>
+        </div>
+      </div>
+
+      <div class="cancel-box" id="cancelBox">
+        <p>You can cancel within: <strong id="cancelTimer">5:00</strong></p>
+        <button class="btn btn-outline" id="cancelOrderBtn">Cancel This Order</button>
+      </div>
+      <p class="cancel-expired" id="cancelExpired" hidden>The 5-minute cancellation window has closed.</p>
+
+      <div class="success-actions">
+        <button class="btn btn-ghost" data-nav="shop">Order More Juice</button>
+        <button class="btn btn-ghost" id="trackThisOrderBtn">Track This Order</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= TRACK ORDER VIEW ============================= -->
+  <section class="view" id="view-track" hidden>
+    <h1>TRACK YOUR ORDER</h1>
+    <div class="track-form">
+      <input type="text" id="trackOrderId" placeholder="Enter your Order ID (e.g. ORD-A1B2C3D4)" />
+      <button class="btn btn-primary" id="trackBtn">Track</button>
+    </div>
+    <div id="trackResult"></div>
+  </section>
+
+</main>
+
+<!-- ============================= TOAST ============================= -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

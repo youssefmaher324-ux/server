@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Citrine Ops — Delivery Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============================= DRIVER LOGIN ============================= -->
+<div class="gate-screen" id="gateScreen">
+  <div class="gate-card glass">
+    <div class="brand">CITRINE <span>DRIVE</span></div>
+    <p class="sub">Delivery Dashboard — enter your Driver ID</p>
+    <input type="text" id="driverIdInput" placeholder="Driver ID (e.g. DRV-A1B2C3D4)" autocomplete="off" />
+    <div class="gate-error" id="gateError"></div>
+    <button class="btn btn-primary btn-block" id="gateSubmit">Start Shift</button>
+  </div>
+</div>
+
+<!-- ============================= DASHBOARD SHELL ============================= -->
+<div class="dash-shell" id="dashShell" style="flex-direction:column;">
+  <div class="main-col" style="max-width:1100px;margin:0 auto;width:100%;">
+    <div class="topbar">
+      <div>
+        <h1 id="driverGreeting">Hi, Driver</h1>
+        <span class="live-dot">LIVE · REFRESHES EVERY 5S</span>
+      </div>
+      <button class="btn btn-outline btn-sm" id="logoutBtn">End Shift</button>
+    </div>
+
+    <div id="ordersEmpty" class="glass" style="padding:40px;text-align:center;color:var(--text-dim);display:none;">
+      No orders assigned to you right now. New assignments appear automatically.
+    </div>
+
+    <div class="order-cards" id="orderCards"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

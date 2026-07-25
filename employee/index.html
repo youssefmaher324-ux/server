@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Citrine Ops — Employee Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============================= ACCESS GATE ============================= -->
+<div class="gate-screen" id="gateScreen">
+  <div class="gate-card glass">
+    <div class="brand">CITRINE <span>OPS</span></div>
+    <p class="sub">Employee Dashboard — enter your access key</p>
+    <input type="password" id="accessKeyInput" placeholder="Access key" autocomplete="off" />
+    <div class="gate-error" id="gateError"></div>
+    <button class="btn btn-primary btn-block" id="gateSubmit">Unlock Dashboard</button>
+  </div>
+</div>
+
+<!-- ============================= DASHBOARD SHELL ============================= -->
+<div class="dash-shell" id="dashShell">
+  <aside class="sidebar">
+    <div class="brand">CITRINE <span>OPS</span></div>
+    <button class="nav-item active" data-panel="orders">📦 Orders</button>
+    <button class="nav-item" data-panel="products">🍊 Products</button>
+    <div class="sidebar-footer">
+      <span class="role-tag">EMPLOYEE ACCESS</span>
+      <button class="btn btn-outline btn-block btn-sm" id="logoutBtn">Log Out</button>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <div class="topbar">
+      <h1 id="panelTitle">Orders</h1>
+      <span class="live-dot">LIVE · REFRESHES EVERY 5S</span>
+    </div>
+
+    <!-- ORDERS PANEL -->
+    <section class="panel active" id="panel-orders">
+      <div class="toolbar">
+        <input type="text" id="orderSearch" placeholder="Search by name, phone, order ID…" />
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option>Pending</option>
+          <option>Preparing</option>
+          <option>Out for Delivery</option>
+          <option>Delivered</option>
+          <option>Cancelled</option>
+        </select>
+        <div class="spacer"></div>
+        <button class="btn btn-outline btn-sm" id="refreshOrdersBtn">Refresh Now</button>
+      </div>
+      <div class="table-wrap glass">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Driver</th><th>Placed</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTbody">
+            <tr class="loading-row"><td colspan="8">Loading orders…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PRODUCTS PANEL -->
+    <section class="panel" id="panel-products">
+      <div class="toolbar">
+        <input type="text" id="productSearch" placeholder="Search products…" />
+        <div class="spacer"></div>
+        <button class="btn btn-primary btn-sm" id="addProductBtn">+ Add Product</button>
+      </div>
+      <div class="table-wrap glass">
+        <table class="data-table">
+          <thead>
+            <tr><th>Product</th><th>Category</th><th>Price</th><th>Available</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="productsTbody">
+            <tr class="loading-row"><td colspan="5">Loading products…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ============================= PRODUCT MODAL ============================= -->
+<div class="modal-scrim" id="productModalScrim">
+  <div class="modal glass">
+    <h2 id="productModalTitle">Add Product</h2>
+    <form id="productForm">
+      <input type="hidden" id="pId" />
+      <div class="form-field"><label>Name</label><input type="text" id="pName" required /></div>
+      <div class="form-field"><label>Description</label><textarea id="pDescription" rows="2"></textarea></div>
+      <div class="form-field"><label>Price (EGP)</label><input type="number" id="pPrice" step="0.01" min="0" required /></div>
+      <div class="form-field">
+        <label>Category</label>
+        <select id="pCategory">
+          <option>Citrus</option><option>Green</option><option>Berry</option>
+          <option>Tropical</option><option>Shots</option><option>Smoothie</option><option>Other</option>
+        </select>
+      </div>
+      <div class="form-field"><label>Image URL</label><input type="url" id="pImage" placeholder="https://…" /></div>
+      <label class="check-row"><input type="checkbox" id="pAvailable" checked /> Available on customer site</label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="productModalCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="productModalSave">Save Product</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============================= ASSIGN DRIVER MODAL ============================= -->
+<div class="modal-scrim" id="driverModalScrim">
+  <div class="modal glass">
+    <h2>Assign Delivery Driver</h2>
+    <div class="form-field">
+      <label>Driver</label>
+      <select id="driverSelect"></select>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" id="driverModalCancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="driverModalConfirm">Assign</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================= INVOICE MODAL ============================= -->
+<div class="modal-scrim" id="invoiceModalScrim">
+  <div class="modal glass" id="invoiceModal" style="max-width:520px;">
+    <div id="invoiceContent"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" id="invoiceClose">Close</button>
+      <button type="button" class="btn btn-primary" id="invoicePrint">🖨 Print Invoice</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
