@@ -3,114 +3,43 @@ const bcrypt = require("bcrypt");
 
 const prisma = new PrismaClient();
 
-
 async function main() {
 
-  console.log("Starting seed...");
+  console.log("🌱 Starting seed...");
 
 
-  const superAdminRole = await prisma.role.upsert({
-    where:{
-      name:"super_admin"
-    },
-    update:{},
-    create:{
-      name:"super_admin"
-    }
-  });
-
-
-  const adminRole = await prisma.role.upsert({
-    where:{
-      name:"admin"
-    },
-    update:{},
-    create:{
-      name:"admin"
-    }
-  });
-
-
-  const permissions = [
-    "products.read",
-    "products.write",
-    "orders.read",
-    "orders.write",
-    "orders.cancel",
-    "users.manage",
-    "settings.write"
-  ];
-
-
-  for(const key of permissions){
-
-    await prisma.permission.upsert({
-
-      where:{
-        key
-      },
-
-      update:{},
-
-      create:{
-        key
-      }
-
-    });
-
-  }
-
-
-  const password = await bcrypt.hash(
+  const adminPassword = await bcrypt.hash(
     "Admin@123456",
     12
   );
 
 
-  const user = await prisma.user.upsert({
-
-    where:{
-      email:"admin@citrine.com"
+  const admin = await prisma.user.upsert({
+    where: {
+      email: "admin@citrine.com"
     },
-
-    update:{},
-
-    create:{
-
-      email:"admin@citrine.com",
-
-      password,
-
-      name:"Citrine Admin",
-
-      roleId:superAdminRole.id
-
+    update: {},
+    create: {
+      email: "admin@citrine.com",
+      password: adminPassword,
+      role: "ADMIN",
+      name: "Citrine Admin"
     }
-
   });
 
 
-  console.log("==============================");
-  console.log("ADMIN CREATED");
-  console.log("Email: admin@citrine.com");
-  console.log("Password: Admin@123456");
-  console.log("==============================");
+  console.log("✅ Admin created:");
+  console.log(admin.email);
 
 }
 
 
 main()
-
-.catch((e)=>{
-
- console.error(e);
-
- process.exit(1);
-
+.then(async()=>{
+  await prisma.$disconnect();
 })
-
-.finally(async()=>{
-
- await prisma.$disconnect();
-
+.catch(async(e)=>{
+  console.error(e);
+  await prisma.$disconnect();
+  process.exit(1);
 });
