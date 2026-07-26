@@ -1,5 +1,31 @@
 # Citrine Backend Migration — NestJS / Prisma / Supabase / Railway
 
+## ⚠️ package-lock.json — read this first
+
+This repo does not yet include a real `package-lock.json` for
+`server-nest`. It couldn't be generated in the environment that built this
+project (no registry access), and a fabricated one would fail `npm ci` on
+Railway with integrity-hash errors — worse than not having one at all.
+
+**Generate the real one in one step, on any machine with internet access:**
+
+```bash
+cd server-nest
+npm install
+git add package-lock.json
+git commit -m "Add package-lock.json for server-nest"
+```
+
+That's it — `npm install` reads `package.json`, resolves every version,
+and writes a correct `package-lock.json` with real `resolved`/`integrity`
+fields. Commit it and push.
+
+**Until you do that**, the Dockerfile and CI workflow both fall back to
+`npm install` automatically (see below) so Railway deploys still work —
+just without the reproducibility/speed guarantees a committed lockfile
+gives you. Once the lockfile is committed, both switch to `npm ci`
+automatically, no further changes needed.
+
 ## What changed and why
 
 The old `server/` (Express + `pg`) is left in place, untouched, so nothing
