@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { getJwtAccessSecret } from '../config/jwt.config';
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL_DAYS_DEFAULT = 30;
@@ -147,7 +148,7 @@ export class AuthService {
   private async issueTokenPair(userId: string, roleId: string | undefined, email: string | undefined, rememberMe: boolean, meta?: { ip?: string; userAgent?: string }) {
     const accessToken = this.jwt.sign(
       { sub: userId, roleId, email },
-      { secret: process.env.JWT_ACCESS_SECRET, expiresIn: ACCESS_TOKEN_TTL },
+      { secret: getJwtAccessSecret(), expiresIn: ACCESS_TOKEN_TTL },
     );
 
     const rawRefresh = crypto.randomBytes(48).toString('hex');
@@ -194,7 +195,7 @@ export class AuthService {
 
     const accessToken = this.jwt.sign(
       { sub: user.id, roleId: user.roleId, email: user.email },
-      { secret: process.env.JWT_ACCESS_SECRET, expiresIn: ACCESS_TOKEN_TTL },
+      { secret: getJwtAccessSecret(), expiresIn: ACCESS_TOKEN_TTL },
     );
 
     return { accessToken, refreshToken: rawNew };

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 /**
  * Thin wrapper around Supabase Storage. Replaces the old Multer-to-local-disk
@@ -7,17 +8,23 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
  * server/uploads and served them via `/uploads`, a pattern that doesn't
  * survive a Railway redeploy or scale past one instance).
  *
- * Node 20 compatibility / realtime notes:
- * - This backend only uses Storage, never Realtime or client-side Auth, so
- *   the client is created with `auth.persistSession`/`autoRefreshToken`
- *   disabled (there's no browser session to persist server-side — leaving
- *   these on wastes a background refresh timer) and Realtime's heartbeat
- *   effectively neutered (`eventsPerSecond: 0`). We never call
- *   `.channel()`/`.subscribe()` anywhere, so no WebSocket connection is
- *   ever opened regardless — this just makes that explicit instead of
- *   relying on "we never call it."
+ * Node 20 / realtime notes:
+ * - This backend only uses Storage — it never calls `.channel()` or
+ *   `.subscribe()` — but `@supabase/supabase-js` unconditionally constructs
+ *   an internal RealtimeClient the moment `createClient()` runs, regardless
+ *   of whether you ever use it. That RealtimeClient needs a WebSocket
+ *   implementation, and Node 20 does not have a stable global `WebSocket`
+ *   (it landed as experimental only in Node 21+, so `globalThis.WebSocket`
+ *   is undefined on Node 20). Left unconfigured, `@supabase/realtime-js`
+ *   tries to auto-detect one and throws — this is exactly the crash.
+ *   Passing the `ws` package explicitly as `realtime.transport` sidesteps
+ *   the auto-detection entirely, so it never matters that Node 20 has no
+ *   native WebSocket.
+ * - `auth.persistSession`/`autoRefreshToken`/`detectSessionInUrl` are all
+ *   disabled — there's no browser session to persist server-side, and the
+ *   service-role key never expires the way a user JWT would.
  * - Node 20 has global `fetch`, so no fetch polyfill is needed for the
- *   supabase-js v2 client.
+ *   supabase-js v2 client itself.
  */
 @Injectable()
 export class StorageService {
@@ -46,6 +53,10 @@ export class StorageService {
         detectSessionInUrl: false,
       },
       realtime: {
+        // Explicit transport = no runtime WebSocket auto-detection = no
+        // Node-20-has-no-global-WebSocket crash. eventsPerSecond: 0 means
+        // even if something did open a channel, it'd be inert.
+        transport: WebSocket as unknown as typeof globalThis.WebSocket,
         params: { eventsPerSecond: 0 },
       },
     });

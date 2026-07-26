@@ -5,7 +5,7 @@
  * construction (e.g. passport-jwt's generic "requires a secret or key",
  * or the Supabase SDK's generic "supabaseUrl is required").
  */
-const REQUIRED_IN_ALL_ENVS = ['DATABASE_URL', 'JWT_ACCESS_SECRET'];
+const REQUIRED_IN_ALL_ENVS = ['DATABASE_URL'];
 
 // Only enforced when NODE_ENV=production — local/dev can run against a
 // partial .env (e.g. skipping Supabase while working on unrelated routes).
@@ -19,6 +19,12 @@ const REQUIRED_IN_PRODUCTION = [
 
 export function validateEnv(): void {
   const missing: string[] = REQUIRED_IN_ALL_ENVS.filter((key) => !process.env[key]);
+
+  // JWT_ACCESS_SECRET is preferred; JWT_SECRET is an accepted fallback (see
+  // config/jwt.config.ts) — only flag as missing if NEITHER is set.
+  if (!process.env.JWT_ACCESS_SECRET && !process.env.JWT_SECRET) {
+    missing.push('JWT_ACCESS_SECRET (or JWT_SECRET as a fallback)');
+  }
 
   if (process.env.NODE_ENV === 'production') {
     missing.push(...REQUIRED_IN_PRODUCTION.filter((key) => !process.env[key]));
