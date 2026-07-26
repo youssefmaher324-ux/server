@@ -13,9 +13,18 @@ export class StorageService {
   private bucket: string;
 
   constructor() {
-    this.client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'citrine-media';
-  }
+  this.client = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      realtime: {
+        enabled: false,
+      },
+    },
+  );
+
+  this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'citrine-media';
+}
 
   async upload(path: string, buffer: Buffer, contentType: string): Promise<string> {
     const { error } = await this.client.storage.from(this.bucket).upload(path, buffer, {
