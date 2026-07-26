@@ -34,4 +34,4 @@ RUN npx prisma generate
 COPY --from=build /app/dist ./dist
 
 EXPOSE 4000
-CMD ["npm","run","start:prod"]
+CMD ["node", "dist/main"]
