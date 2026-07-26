@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
@@ -56,6 +56,48 @@ export class LegacyActionsService {
     throw new UnauthorizedException('Invalid access key');
   }
 
+  /**
+   * The legacy `addProduct` action sends a loose, untyped payload (it used
+   * to go straight into a Google Sheets row). ProductsService.create()
+   * requires `name: string` and `price: number`; this validates both are
+   * actually present and coerces types (price arrives as a string from some
+   * older client builds) instead of passing the raw payload through and
+   * letting either Prisma or TypeScript reject it.
+   */
+  private toProductCreateInput(payload: Record<string, any>) {
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    if (!name) throw new BadRequestException('Product name is required');
+
+    const price = typeof payload.price === 'number' ? payload.price : Number(payload.price);
+    if (!Number.isFinite(price) || price < 0) throw new BadRequestException('Product price must be a valid non-negative number');
+
+    return {
+      name,
+      nameAr: typeof payload.nameAr === 'string' ? payload.nameAr : undefined,
+      description: typeof payload.description === 'string' ? payload.description : undefined,
+      price,
+      categoryId: typeof payload.categoryId === 'string' ? payload.categoryId : undefined,
+      imageUrl: typeof payload.imageUrl === 'string' ? payload.imageUrl : undefined,
+    };
+  }
+
+  /**
+   * Same reasoning as toProductCreateInput: DriversService.create() requires
+   * `name: string`; the legacy `addDriver` action doesn't guarantee one was
+   * sent, so validate it explicitly rather than passing payload through.
+   */
+  private toDriverCreateInput(payload: Record<string, any>) {
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    if (!name) throw new BadRequestException('Driver name is required');
+
+    return {
+      name,
+      phone: typeof payload.phone === 'string' ? payload.phone : undefined,
+      password: typeof payload.password === 'string' ? payload.password : undefined,
+      branchId: typeof payload.branchId === 'string' ? payload.branchId : undefined,
+    };
+  }
+
   async dispatch(action: string, payload: Record<string, any>, meta: { ip?: string; userAgent?: string }) {
     const adminOnlyActions = new Set(['deleteAllOrders', 'deleteCompletedOrders', 'addDriver', 'editDriver', 'deleteDriver', 'getStats']);
     const staff = await this.authenticateStaff(payload.accessKey, adminOnlyActions.has(action));
@@ -72,7 +114,7 @@ export class LegacyActionsService {
       case 'getProducts':
         return logAndReturn((await this.products.list({ pageSize: 200 })).items);
       case 'addProduct':
-        return logAndReturn(await this.products.create(payload));
+        return logAndReturn(await this.products.create(this.toProductCreateInput(payload)));
       case 'editProduct':
         return logAndReturn(await this.products.update(payload.id, payload));
       case 'deleteProduct':
@@ -88,7 +130,7 @@ export class LegacyActionsService {
       case 'getDrivers':
         return logAndReturn(await this.drivers.list());
       case 'addDriver':
-        return logAndReturn(await this.drivers.create(payload));
+        return logAndReturn(await this.drivers.create(this.toDriverCreateInput(payload)));
       case 'editDriver':
         return logAndReturn(await this.drivers.updatePassword(payload.id, payload.password));
       case 'deleteDriver':
