@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import { OrdersService } from '../orders/orders.service';
@@ -8,23 +7,19 @@ import { InvoicesService } from '../invoices/invoices.service';
 import { AuditService } from '../audit/audit.service';
 
 /**
- * Compatibility layer for employee/app.js and admin/app.js.
+ * Compatibility layer for employee/app.js and admin/app.js — keeps their
+ * existing `api(action, payload)` call sites working against a single
+ * dispatcher endpoint (some actions here, like getStats/deleteAllOrders,
+ * have no individual REST equivalent yet) while the *authentication*
+ * underneath has moved on twice:
  *
- * Those two files were talking directly to a Google Apps Script Web App
- * using a single `api(action, payload)` helper and a hard-coded WEB_APP_URL
- * (which — heads up — was a *live, working* Apps Script deployment link
- * committed straight into the client-side bundle; anyone who opened
- * dev tools had it). That URL and every action name below is preserved
- * here so the only change required in those two files is:
- *
- *   CONFIG.WEB_APP_URL -> your new API's /api/citrine/actions endpoint
- *
- * `accessKey` now means "a staff member's password", checked against
- * users.password_hash for a user whose role is employee/admin/super_admin
- * (instead of a single shared secret hardcoded into Apps Script's Script
- * Properties, which every one of your staff shared under this old design).
- * This is a per-request check (no session state) to match the original
- * behavior exactly — swap to a JWT session once the frontends can store one.
+ *   v1: a single shared Apps Script secret, same key for every staff member
+ *   v2: accessKey = "a staff member's password", brute-force bcrypt-compared
+ *       against every staff user on every request (O(n), no session state)
+ *   v3 (current): real JWT from POST /api/auth/login. The controller now
+ *       requires JwtAuthGuard + RolesGuard before this service ever runs,
+ *       so `dispatch()` receives an already-authenticated userId instead
+ *       of a raw accessKey to check itself.
  */
 @Injectable()
 export class LegacyActionsService {
@@ -36,25 +31,6 @@ export class LegacyActionsService {
     private invoices: InvoicesService,
     private audit: AuditService,
   ) {}
-
-  private async authenticateStaff(accessKey: string, requireAdmin = false) {
-    if (!accessKey) throw new UnauthorizedException('Access key required');
-
-    // NOTE: matching "some staff user whose password matches" rather than a
-    // single shared secret is O(n) over staff accounts; fine at this scale,
-    // but if a `username` accompanies accessKey in a later frontend change,
-    // switch this to a direct lookup instead of a scan.
-    const candidates = await this.prisma.user.findMany({
-      where: { role: { name: requireAdmin ? { in: ['admin', 'super_admin'] } : { in: ['employee', 'admin', 'super_admin'] } } },
-      include: { role: true },
-    });
-    for (const candidate of candidates) {
-      if (candidate.passwordHash && (await bcrypt.compare(accessKey, candidate.passwordHash))) {
-        return candidate;
-      }
-    }
-    throw new UnauthorizedException('Invalid access key');
-  }
 
   /**
    * The legacy `addProduct` action sends a loose, untyped payload (it used
@@ -93,14 +69,23 @@ export class LegacyActionsService {
     return {
       name,
       phone: typeof payload.phone === 'string' ? payload.phone : undefined,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
       password: typeof payload.password === 'string' ? payload.password : undefined,
       branchId: typeof payload.branchId === 'string' ? payload.branchId : undefined,
     };
   }
 
-  async dispatch(action: string, payload: Record<string, any>, meta: { ip?: string; userAgent?: string }) {
+  async dispatch(action: string, payload: Record<string, any>, authenticatedUserId: string, meta: { ip?: string; userAgent?: string }) {
+    const staff = await this.prisma.user.findUnique({ where: { id: authenticatedUserId }, include: { role: true } });
+    if (!staff || !staff.isActive) throw new UnauthorizedException('Account unavailable');
+    if (!['admin', 'employee', 'super_admin'].includes(staff.role?.name ?? '')) {
+      throw new ForbiddenException('Not a staff account');
+    }
+
     const adminOnlyActions = new Set(['deleteAllOrders', 'deleteCompletedOrders', 'addDriver', 'editDriver', 'deleteDriver', 'getStats']);
-    const staff = await this.authenticateStaff(payload.accessKey, adminOnlyActions.has(action));
+    if (adminOnlyActions.has(action) && !['admin', 'super_admin'].includes(staff.role?.name ?? '')) {
+      throw new ForbiddenException('Admins only');
+    }
 
     const logAndReturn = async (data: unknown) => {
       await this.audit.log({ userId: staff.id, action: `legacy.${action}`, ip: meta.ip, userAgent: meta.userAgent });
@@ -149,12 +134,10 @@ export class LegacyActionsService {
       }
 
       case 'deleteCompletedOrders':
-        if (staff.role?.name === 'employee') throw new ForbiddenException('Admins only');
         await this.prisma.order.deleteMany({ where: { status: 'delivered' } });
         return logAndReturn({ deleted: true });
 
       case 'deleteAllOrders':
-        if (staff.role?.name === 'employee') throw new ForbiddenException('Admins only');
         await this.prisma.order.deleteMany({});
         return logAndReturn({ deleted: true });
 

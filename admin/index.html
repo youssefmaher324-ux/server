@@ -10,14 +10,15 @@
 </head>
 <body>
 
-<!-- ============================= ACCESS GATE ============================= -->
+<!-- ============================= LOGIN GATE ============================= -->
 <div class="gate-screen" id="gateScreen">
   <div class="gate-card glass">
     <div class="brand">CITRINE <span>ADMIN</span></div>
-    <p class="sub">Admin Dashboard — enter your admin key</p>
-    <input type="password" id="accessKeyInput" placeholder="Admin key" autocomplete="off" />
+    <p class="sub">Admin Dashboard — sign in with your admin account</p>
+    <input type="email" id="gateEmailInput" placeholder="Email" autocomplete="username" />
+    <input type="password" id="gatePasswordInput" placeholder="Password" autocomplete="current-password" />
     <div class="gate-error" id="gateError"></div>
-    <button class="btn btn-primary btn-block" id="gateSubmit">Unlock Dashboard</button>
+    <button class="btn btn-primary btn-block" id="gateSubmit">Sign In</button>
   </div>
 </div>
 

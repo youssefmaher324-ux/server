@@ -10,11 +10,17 @@ export class DriversService {
     return this.prisma.driver.findMany({ orderBy: { name: 'asc' } });
   }
 
-  async create(data: { name: string; phone?: string; password?: string; branchId?: string }) {
+  async create(data: { name: string; phone?: string; email?: string; password?: string; branchId?: string }) {
     const passwordHash = data.password ? await bcrypt.hash(data.password, 12) : undefined;
     return this.prisma.driver.create({
-      data: { name: data.name, phone: data.phone, branchId: data.branchId, passwordHash },
+      data: { name: data.name, phone: data.phone, email: data.email, branchId: data.branchId, passwordHash },
     });
+  }
+
+  /** Looks up by phone or email — used for driver login (phone/email + password). */
+  findByIdentifier(identifier: string) {
+    const isEmail = identifier.includes('@');
+    return this.prisma.driver.findFirst({ where: isEmail ? { email: identifier } : { phone: identifier } });
   }
 
   async updatePassword(driverId: string, password: string) {

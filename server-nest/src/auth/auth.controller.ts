@@ -77,6 +77,21 @@ export class AuthController {
   }
 
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })
+  @Post('driver-login')
+  async driverLogin(
+    @Body() dto: { identifier: string; password: string },
+    @Ip() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.auth.driverLogin(dto.identifier, dto.password, { ip, userAgent: req.headers['user-agent'] });
+    // No refresh_token cookie — see AuthService.driverLogin for why drivers
+    // only get a single longer-lived access token today.
+    res.cookie('access_token', result.accessToken, { ...COOKIE_OPTS, maxAge: 12 * 60 * 60 * 1000 });
+    return { success: true, driver: result.driver, accessToken: result.accessToken };
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 3600_000 } })
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.auth.forgotPassword(dto.email);

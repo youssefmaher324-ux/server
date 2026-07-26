@@ -29,7 +29,7 @@ import WebSocket from 'ws';
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private client: SupabaseClient;
+  private client: SupabaseClient | undefined;
   private bucket: string;
 
   constructor() {
@@ -37,13 +37,21 @@ export class StorageService {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!url || !serviceRoleKey) {
-      // Fail fast with a clear message instead of letting the Supabase SDK
-      // throw its generic "supabaseUrl is required" error, which gives no
-      // indication of which env var is actually missing.
-      throw new Error(
-        'StorageService: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must both be set. ' +
-          `Missing: ${[!url && 'SUPABASE_URL', !serviceRoleKey && 'SUPABASE_SERVICE_ROLE_KEY'].filter(Boolean).join(', ')}`,
+      // Previously threw here — but throwing inside a constructor kills
+      // the whole Nest bootstrap the same way an eager Prisma $connect()
+      // failure does (see prisma.service.ts): the process exits before
+      // app.listen() ever runs, so even the DB/Supabase-independent
+      // /api/health liveness check never gets a chance to respond, and
+      // Railway fails the entire deploy over one missing optional feature.
+      // Log loudly instead and fail only when banners/invoices actually
+      // try to use storage.
+      this.logger.error(
+        'StorageService: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must both be set for banner/invoice uploads to work. ' +
+          `Missing: ${[!url && 'SUPABASE_URL', !serviceRoleKey && 'SUPABASE_SERVICE_ROLE_KEY'].filter(Boolean).join(', ')}. ` +
+          'The app will still start; storage-dependent routes will fail until this is fixed.',
       );
+      this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'citrine-media';
+      return;
     }
 
     this.client = createClient(url, serviceRoleKey, {
@@ -64,23 +72,33 @@ export class StorageService {
     this.logger.log(`Supabase Storage client initialized (bucket: ${this.bucket})`);
   }
 
+  private getClient(): SupabaseClient {
+    if (!this.client) {
+      throw new Error(
+        'Supabase Storage is not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing) — this route needs those set to work.',
+      );
+    }
+    return this.client;
+  }
+
   async upload(path: string, buffer: Buffer, contentType: string): Promise<string> {
-    const { error } = await this.client.storage.from(this.bucket).upload(path, buffer, {
+    const client = this.getClient();
+    const { error } = await client.storage.from(this.bucket).upload(path, buffer, {
       contentType,
       upsert: true,
     });
     if (error) throw error;
-    const { data } = this.client.storage.from(this.bucket).getPublicUrl(path);
+    const { data } = client.storage.from(this.bucket).getPublicUrl(path);
     return data.publicUrl;
   }
 
   async remove(path: string): Promise<void> {
-    await this.client.storage.from(this.bucket).remove([path]);
+    await this.getClient().storage.from(this.bucket).remove([path]);
   }
 
   /** Signed URL for private objects (e.g. invoice PDFs), expires in `expiresInSeconds`. */
   async getSignedUrl(path: string, expiresInSeconds = 3600): Promise<string> {
-    const { data, error } = await this.client.storage.from(this.bucket).createSignedUrl(path, expiresInSeconds);
+    const { data, error } = await this.getClient().storage.from(this.bucket).createSignedUrl(path, expiresInSeconds);
     if (error) throw error;
     return data.signedUrl;
   }

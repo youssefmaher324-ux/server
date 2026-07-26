@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -43,7 +43,7 @@ export class OrdersController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
-  @Patch(':id/status')
+  @Put(':id/status')
   updateStatus(@Param('id') id: string, @Body('status') status: string, @Req() req: any) {
     return this.orders.updateStatus(id, status, req.user?.userId);
   }
@@ -51,7 +51,7 @@ export class OrdersController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'employee')
-  @Patch(':id/assign-driver')
+  @Put(':id/assign-driver')
   assignDriver(@Param('id') id: string, @Body('driverId') driverId: string, @Req() req: any) {
     return this.orders.assignDriver(id, driverId, req.user?.userId);
   }

@@ -111,6 +111,32 @@ export class AuthService {
     return { user: { id: user.id, name: user.name, email: user.email }, ...tokens };
   }
 
+  /**
+   * Driver login (phone/email + password). Drivers are a separate `Driver`
+   * table, not wired into `refresh_tokens`/`sessions` (those FK to `User`).
+   * Rather than migrate the schema to give drivers first-class refresh-token
+   * rotation, this issues one longer-lived (12h) access token — a driver
+   * logs in once per shift and re-authenticates the next one. If drivers
+   * need silent long-lived sessions (multi-day app installs) later, that's
+   * the point to add a `driver_refresh_tokens` table mirroring the
+   * user one, not to bend this table to fit.
+   */
+  async driverLogin(identifier: string, password: string, meta?: { ip?: string; userAgent?: string }) {
+    const isEmail = identifier.includes('@');
+    const driver = await this.prisma.driver.findFirst({ where: isEmail ? { email: identifier } : { phone: identifier } });
+    if (!driver?.passwordHash) throw new UnauthorizedException('Invalid credentials');
+
+    const ok = await bcrypt.compare(password, driver.passwordHash);
+    if (!ok) throw new UnauthorizedException('Invalid credentials');
+
+    const accessToken = this.jwt.sign(
+      { sub: driver.id, role: 'driver' },
+      { secret: getJwtAccessSecret(), expiresIn: '12h' },
+    );
+    await this.audit.log({ action: 'auth.driver_login', entityType: 'driver', entityId: driver.id, ip: meta?.ip, userAgent: meta?.userAgent });
+    return { driver: { id: driver.id, name: driver.name }, accessToken };
+  }
+
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Always return success even if the user doesn't exist — don't leak

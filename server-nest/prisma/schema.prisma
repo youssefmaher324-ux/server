@@ -275,6 +275,7 @@ model Order {
   cancellationDeadline DateTime? @map("cancellation_deadline") // createdAt + 5 minutes
   cancelledAt       DateTime?   @map("cancelled_at")
   invoice           Invoice?
+  payment           Payment?
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
 
@@ -295,6 +296,21 @@ model OrderItem {
   lineTotal  Decimal  @db.Decimal(10, 2) @map("line_total")
 
   @@map("order_items")
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  orderId       String   @unique @map("order_id")
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount        Decimal  @db.Decimal(10, 2)
+  method        String   // cash | card | wallet
+  status        String   @default("pending") // pending | paid | failed | refunded
+  transactionRef String? @map("transaction_ref")
+  paidAt        DateTime? @map("paid_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("payments")
 }
 
 model Coupon {
@@ -332,7 +348,8 @@ model Invoice {
 model Driver {
   id                 String           @id @default(uuid())
   name               String
-  phone              String?
+  phone              String?          @unique
+  email              String?          @unique
   passwordHash       String?          @map("password_hash")
   branchId           String?          @map("branch_id")
   branch             Branch?          @relation(fields: [branchId], references: [id])

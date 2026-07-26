@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { PaymentsService } from '../payments/payments.service';
 
 const CANCELLATION_WINDOW_MINUTES = 5;
 
@@ -14,6 +15,7 @@ interface CreateOrderInput {
   couponCode?: string;
   notes?: string;
   branchId?: string;
+  paymentMethod?: string; // cash | card | wallet — defaults to 'cash'
 }
 
 @Injectable()
@@ -21,6 +23,7 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    private payments: PaymentsService,
   ) {}
 
   async create(input: CreateOrderInput) {
@@ -92,6 +95,8 @@ export class OrdersService {
           data: { quantity: { decrement: item.quantity } },
         });
       }
+
+      await this.payments.createPending(tx, order.id, total, input.paymentMethod || 'cash');
 
       await this.audit.log({ userId: input.userId, action: 'order.create', entityType: 'order', entityId: order.id });
       return order;

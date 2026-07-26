@@ -1,7 +1,7 @@
 // Was the old Node proxy (server/). Now points at the NestJS backend
 // directly; note the route also changed from POST /driver/location to
 // PATCH /drivers/:id/location (see startGpsTracking below).
-const API_URL = 'server-production-036d.up.railway.app';
+const API_URL = 'https://YOUR-RAILWAY-APP.up.railway.app/api';
 
 // إرسال الموقع الجغرافي تلقائياً أثناء وردية التوصيل
 function startGpsTracking(driverId) {

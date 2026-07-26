@@ -1,19 +1,18 @@
 /**
  * ============================================================================
  * CITRINE OPS — EMPLOYEE DASHBOARD
- * Private page. Talks exclusively to the Google Apps Script Web App.
+ * Talks to the NestJS backend. Auth is real email+password JWT login
+ * (POST /api/auth/login) — the accessKey/EMPLOYEE_KEY shared-secret system
+ * is gone. The JWT lives in an httpOnly cookie set by the backend; this
+ * file never reads or stores it directly, it just sends
+ * credentials: 'include' on every request and lets the browser attach it.
  * ============================================================================
  */
 const CONFIG = {
-  // Was a live Google Apps Script Web App URL hardcoded here (exposed to
-  // anyone opening dev tools). Now points at the NestJS backend's
-  // action-compat endpoint, which preserves every `api(action, payload)`
-  // call site below unchanged — see server-nest/src/legacy-compat.
-  WEB_APP_URL: 'server-production-036d.up.railway.app',
+  API_BASE: 'https://server-production-036d.up.railway.app/',
   REFRESH_MS: 5000
 };
 
-let ACCESS_KEY = sessionStorage.getItem('citrine_employee_key') || '';
 let ORDERS = [];
 let PRODUCTS = [];
 let DRIVERS = [];
@@ -23,15 +22,22 @@ let assignOrderId = null;
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
+// The action dispatcher stays (some staff-only bulk operations don't have
+// individual REST endpoints yet), but auth is now the same httpOnly JWT
+// cookie every other route uses, not a shared key sent in the request body.
 async function api(action, payload) {
-  if (CONFIG.WEB_APP_URL.indexOf('PASTE_YOUR') === 0) throw new Error('Set CONFIG.WEB_APP_URL in app.js first.');
-  const res = await fetch(CONFIG.WEB_APP_URL, {
+  const res = await fetch(`${CONFIG.API_BASE}/citrine/actions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(Object.assign({ action, accessKey: ACCESS_KEY }, payload || {}))
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(Object.assign({ action }, payload || {}))
   });
+  if (res.status === 401 || res.status === 403) {
+    showGate();
+    throw new Error('Session expired — please log in again.');
+  }
   const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Request failed.');
+  if (!json.success) throw new Error(json.error || json.message || 'Request failed.');
   return json.data;
 }
 
@@ -44,26 +50,42 @@ function toast(msg, type) {
 }
 
 // ---------------------------------------------------------------------------
-// ACCESS GATE
+// LOGIN GATE (email + password)
 // ---------------------------------------------------------------------------
-document.getElementById('gateSubmit').onclick = tryUnlock;
-document.getElementById('accessKeyInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryUnlock(); });
+document.getElementById('gateSubmit').onclick = tryLogin;
+['gateEmailInput', 'gatePasswordInput'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+});
 
-async function tryUnlock() {
-  const key = document.getElementById('accessKeyInput').value.trim();
-  if (!key) return;
-  ACCESS_KEY = key;
+async function tryLogin() {
+  const email = document.getElementById('gateEmailInput').value.trim();
+  const password = document.getElementById('gatePasswordInput').value;
+  if (!email || !password) return;
   document.getElementById('gateError').textContent = '';
-  document.getElementById('gateSubmit').textContent = 'Checking…';
+  document.getElementById('gateSubmit').textContent = 'Signing in…';
   try {
-    await api('whoAmI', {}); // validates the key belongs to staff (employee or admin)
-    sessionStorage.setItem('citrine_employee_key', key);
+    const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email, password })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || 'Invalid email or password.');
+
+    await api('whoAmI', {}); // validates this account is staff (employee or admin)
     enterDashboard();
   } catch (err) {
     document.getElementById('gateError').textContent = err.message;
   } finally {
-    document.getElementById('gateSubmit').textContent = 'Unlock Dashboard';
+    document.getElementById('gateSubmit').textContent = 'Sign In';
   }
+}
+
+function showGate() {
+  clearInterval(pollTimer);
+  document.getElementById('dashShell').classList.remove('active');
+  document.getElementById('gateScreen').style.display = 'flex';
 }
 
 function enterDashboard() {
@@ -73,13 +95,26 @@ function enterDashboard() {
   pollTimer = setInterval(loadAll, CONFIG.REFRESH_MS);
 }
 
-document.getElementById('logoutBtn').onclick = () => {
-  sessionStorage.removeItem('citrine_employee_key');
-  clearInterval(pollTimer);
-  location.reload();
+document.getElementById('logoutBtn').onclick = async () => {
+  try {
+    await fetch(`${CONFIG.API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+  } finally {
+    clearInterval(pollTimer);
+    location.reload();
+  }
 };
 
-if (ACCESS_KEY) enterDashboard();
+// If a valid JWT cookie already exists from an earlier visit this session,
+// skip straight to the dashboard instead of showing the login form again.
+(async function checkExistingSession() {
+  try {
+    await api('whoAmI', {});
+    enterDashboard();
+  } catch {
+    // Not logged in (or session expired) — gate screen is the default
+    // visible state in the HTML already, nothing else to do here.
+  }
+})();
 
 // ---------------------------------------------------------------------------
 // NAV

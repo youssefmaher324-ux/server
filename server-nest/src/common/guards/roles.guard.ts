@@ -25,6 +25,21 @@ export class RolesGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     const user = request.user; // attached by JwtAuthGuard/JwtStrategy
+
+    // Driver tokens carry a literal `role: 'driver'` string instead of a
+    // roleId — drivers aren't in the User/Role/Permission tables at all.
+    // Permission-level checks don't apply to them (they only ever gate on
+    // the role name), so this branch never consults the Role table.
+    if (user?.role && !user?.roleId) {
+      if (requiredPermissions?.length) {
+        throw new ForbiddenException('Driver accounts do not have fine-grained permissions');
+      }
+      if (requiredRoles?.length && !requiredRoles.includes(user.role)) {
+        throw new ForbiddenException('Insufficient role');
+      }
+      return true;
+    }
+
     if (!user?.roleId) throw new ForbiddenException('No role assigned');
 
     const role = await this.prisma.role.findUnique({
