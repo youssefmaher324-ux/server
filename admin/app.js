@@ -9,7 +9,7 @@ const CONFIG = {
   // anyone opening dev tools). Now points at the NestJS backend's
   // action-compat endpoint, which preserves every `api(action, payload)`
   // call site below unchanged — see server-nest/src/legacy-compat.
-  WEB_APP_URL: 'https://YOUR-RAILWAY-APP.up.railway.app/api/citrine/actions',
+  WEB_APP_URL: 'server-production-036d.up.railway.app',
   REFRESH_MS: 5000
 };
 

@@ -1,6 +1,6 @@
 // Was the old Node proxy in front of Apps Script (server/). Now points at
 // the NestJS backend's REST endpoints directly (server-nest/).
-const CONFIG = { API_URL: 'https://YOUR-RAILWAY-APP.up.railway.app/api' };
+const CONFIG = { API_URL: 'server-production-036d.up.railway.app' };
 let userToken = localStorage.getItem('citrine_token') || null;
 let userData = JSON.parse(localStorage.getItem('citrine_user') || 'null');
 
