@@ -5,7 +5,15 @@
 // customer/employee/admin/delivery frontends.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" covers local dev (whatever OS you develop on). The Docker image
+  // is node:20-alpine (musl libc, OpenSSL 3) — without this explicit target,
+  // Prisma only ships the engine for the machine `prisma generate` ran on,
+  // and the query engine fails to load at container startup with an
+  // "Unable to require libquery_engine..." / "Prisma Client could not
+  // locate the Query Engine" error. This is one of the most common reasons
+  // a Prisma+Docker app builds fine but crashes immediately at runtime.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

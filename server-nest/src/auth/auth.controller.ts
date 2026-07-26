@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, Res, UseGuards, Ip } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards, Ip } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
@@ -31,6 +31,18 @@ export class AuthController {
       ...COOKIE_OPTS,
       maxAge: expiresAt ? expiresAt.getTime() - Date.now() : 24 * 60 * 60 * 1000,
     });
+  }
+
+  // Only functional when ENABLE_CSRF=true (see main.ts) — that's the only
+  // time the csurf middleware runs and req.csrfToken() exists. A same-origin
+  // browser client must call this first and echo the token back as
+  // `X-CSRF-Token` on every subsequent POST/PATCH/DELETE.
+  @Get('csrf-token')
+  csrfToken(@Req() req: Request) {
+    if (process.env.ENABLE_CSRF !== 'true') {
+      return { csrfEnabled: false, message: 'CSRF protection is disabled (ENABLE_CSRF is not "true")' };
+    }
+    return { csrfEnabled: true, csrfToken: (req as Request & { csrfToken: () => string }).csrfToken() };
   }
 
   @Throttle({ default: { limit: 10, ttl: 3600_000 } }) // 10/hour/IP — brute force guard
