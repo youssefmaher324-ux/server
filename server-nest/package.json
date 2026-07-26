@@ -3,8 +3,9 @@
   "version": "3.0.0",
   "description": "Citrine Juice Co. — NestJS backend (Postgres/Prisma/Supabase)",
   "private": true,
+  "type": "module",
   "prisma": {
-    "seed": "npx ts-node prisma/seed.ts"
+    "seed": "node --loader ts-node/esm prisma/seed.ts"
   },
   "scripts": {
     "build": "nest build",
@@ -49,7 +50,6 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "ws": "^8.18.0",
-
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4"
   },
