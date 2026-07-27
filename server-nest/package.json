@@ -4,7 +4,7 @@
   "description": "Citrine Juice Co. — NestJS backend (Postgres/Prisma/Supabase)",
   "private": true,
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node --transpile-only prisma/seed.ts"
   },
   "scripts": {
     "build": "nest build",
