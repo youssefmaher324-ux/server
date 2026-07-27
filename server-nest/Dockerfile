@@ -58,6 +58,7 @@ RUN apk add --no-cache openssl
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY package.json ./
+COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY --from=build /app/dist ./dist
 # The Prisma client generated in the build stage lives inside node_modules/
