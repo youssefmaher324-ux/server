@@ -23,8 +23,19 @@ export class OrdersController {
   }
 
   @Get(':id/tracking')
-  tracking(@Param('id') id: string) {
-    return this.orders.getTracking(id);
+  async tracking(@Param('id') id: string) {
+    // customer/app.js (legacy shape) expects
+    // { success, tracking: { status, current_lat, current_lng, driver_name } }
+    const order = await this.orders.getTracking(id);
+    return {
+      success: true,
+      tracking: {
+        status: order.status,
+        current_lat: order.driver?.currentLat ?? null,
+        current_lng: order.driver?.currentLng ?? null,
+        driver_name: order.driver?.name ?? null,
+      },
+    };
   }
 
   @Post(':id/cancel')

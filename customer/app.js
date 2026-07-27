@@ -1,6 +1,6 @@
 // Was the old Node proxy in front of Apps Script (server/). Now points at
 // the NestJS backend's REST endpoints directly (server-nest/).
-const CONFIG = { API_URL: 'https://server-production-036d.up.railway.app/' };
+const CONFIG = { API_URL: 'https://server-production-036d.up.railway.app/api' };
 let userToken = localStorage.getItem('citrine_token') || null;
 let userData = JSON.parse(localStorage.getItem('citrine_user') || 'null');
 
@@ -51,11 +51,12 @@ function initAuth() {
       const res = await fetch(`${CONFIG.API_URL}/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, otp, name })
+        credentials: 'include',
+        body: JSON.stringify({ identifier, code: otp, name })
       });
       const data = await res.json();
       if (data.success) {
-        userToken = data.token;
+        userToken = data.accessToken;
         userData = data.user;
         localStorage.setItem('citrine_token', userToken);
         localStorage.setItem('citrine_user', JSON.stringify(userData));

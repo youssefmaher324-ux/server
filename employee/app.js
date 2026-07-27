@@ -9,7 +9,7 @@
  * ============================================================================
  */
 const CONFIG = {
-  API_BASE: 'https://server-production-036d.up.railway.app/',
+  API_BASE: 'https://server-production-036d.up.railway.app/api',
   REFRESH_MS: 5000
 };
 

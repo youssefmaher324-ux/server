@@ -12,8 +12,17 @@ export class BannersController {
   constructor(private banners: BannersService) {}
 
   @Get()
-  list() {
-    return this.banners.list();
+  async list() {
+    // customer/app.js (legacy shape) expects { banners: [{ image_url, title, subtitle }] }
+    const banners = await this.banners.list();
+    return {
+      banners: banners.map((b) => ({
+        id: b.id,
+        title: b.title,
+        subtitle: b.subtitle,
+        image_url: b.imageUrl,
+      })),
+    };
   }
 
   @ApiBearerAuth()
