@@ -24,9 +24,13 @@ export class OrdersController {
 
   @Get(':id/tracking')
   async tracking(@Param('id') id: string) {
-    // customer/app.js (legacy shape) expects
-    // { success, tracking: { status, current_lat, current_lng, driver_name } }
     const order = await this.orders.getTracking(id);
+    // customer/app.js expects a flat {success, tracking:{status, current_lat,
+    // current_lng, driver_name}} shape (snake_case, no nested driver object)
+    // — this is the one REST endpoint (not behind the legacy action
+    // dispatcher) the old frontend calls directly, so the translation lives
+    // here instead of forcing a nested-object/camelCase rewrite on the
+    // frontend for one route.
     return {
       success: true,
       tracking: {

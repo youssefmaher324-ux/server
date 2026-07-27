@@ -30,7 +30,7 @@ export class ProductsService {
     return product;
   }
 
-  async create(data: { name: string; nameAr?: string; description?: string; price: number; categoryId?: string; imageUrl?: string }) {
+  async create(data: { name: string; nameAr?: string; description?: string; price: number; categoryId?: string; imageUrl?: string; available?: boolean }) {
     return this.prisma.product.create({ data });
   }
 

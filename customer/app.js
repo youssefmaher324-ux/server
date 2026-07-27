@@ -51,12 +51,11 @@ function initAuth() {
       const res = await fetch(`${CONFIG.API_URL}/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ identifier, code: otp, name })
+        body: JSON.stringify({ identifier, otp, name })
       });
       const data = await res.json();
       if (data.success) {
-        userToken = data.accessToken;
+        userToken = data.token;
         userData = data.user;
         localStorage.setItem('citrine_token', userToken);
         localStorage.setItem('citrine_user', JSON.stringify(userData));
