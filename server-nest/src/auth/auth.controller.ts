@@ -14,10 +14,20 @@ import {
   VerifyOtpDto,
 } from './dto/auth.dto';
 
+// The frontends (Vercel) and this API (Railway) are deliberately on
+// different domains — that makes every request here a cross-site request
+// from the browser's point of view. SameSite=Strict (or even Lax) makes
+// the browser silently drop the cookie on cross-site requests entirely,
+// regardless of `credentials: 'include'` on the frontend's fetch calls —
+// this was causing every login to immediately look like a dead session.
+// SameSite=None is required for a cross-domain cookie to be sent at all,
+// and browsers require Secure=true whenever SameSite=None is used (only
+// works over HTTPS, which both Vercel and Railway are in production).
+const CROSS_SITE_COOKIES = process.env.NODE_ENV === 'production';
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
+  secure: CROSS_SITE_COOKIES,
+  sameSite: (CROSS_SITE_COOKIES ? 'none' : 'lax') as 'none' | 'lax',
 };
 
 @ApiTags('auth')
