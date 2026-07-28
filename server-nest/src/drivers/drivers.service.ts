@@ -23,6 +23,11 @@ export class DriversService {
     return this.prisma.driver.findFirst({ where: isEmail ? { email: identifier } : { phone: identifier } });
   }
 
+  /** Updates the driver's editable profile fields (name/phone/available) — distinct from updatePassword. */
+  updateDetails(driverId: string, data: Partial<{ name: string; phone: string; available: boolean }>) {
+    return this.prisma.driver.update({ where: { id: driverId }, data });
+  }
+
   async updatePassword(driverId: string, password: string) {
     const passwordHash = await bcrypt.hash(password, 12);
     return this.prisma.driver.update({ where: { id: driverId }, data: { passwordHash } });

@@ -11,7 +11,7 @@ export class VerifyOtpDto {
 
   @IsString()
   @Length(6, 6)
-  otp: string;
+  code: string;
 
   @IsOptional()
   @IsString()

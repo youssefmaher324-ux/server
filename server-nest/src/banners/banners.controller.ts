@@ -13,11 +13,15 @@ export class BannersController {
 
   @Get()
   async list() {
+    // customer/app.js (legacy shape) expects { banners: [{ image_url, title, subtitle }] }
     const banners = await this.banners.list();
-    // customer/app.js expects {banners: [...]} with a snake_case image_url
-    // field, not a raw array with camelCase imageUrl.
     return {
-      banners: banners.map((b) => ({ ...b, image_url: b.imageUrl })),
+      banners: banners.map((b) => ({
+        id: b.id,
+        title: b.title,
+        subtitle: b.subtitle,
+        image_url: b.imageUrl,
+      })),
     };
   }
 

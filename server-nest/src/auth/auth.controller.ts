@@ -64,15 +64,12 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })
   @Post('verify-otp')
   async verifyOtp(@Body() dto: VerifyOtpDto, @Ip() ip: string, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const result = await this.auth.verifyOtp(dto.identifier, dto.otp, dto.name, dto.rememberMe, {
+    const result = await this.auth.verifyOtp(dto.identifier, dto.code, dto.name, dto.rememberMe, {
       ip,
       userAgent: req.headers['user-agent'],
     });
     this.setAuthCookies(res, result.accessToken, result.refreshToken, result.expiresAt);
-    // customer/app.js reads `data.token` (old Apps-Script-era field name),
-    // not `data.accessToken` — both are included so any other consumer
-    // relying on the newer `accessToken` name keeps working too.
-    return { success: true, user: result.user, token: result.accessToken, accessToken: result.accessToken };
+    return { success: true, user: result.user, accessToken: result.accessToken };
   }
 
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })

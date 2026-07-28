@@ -159,7 +159,13 @@ export class OrdersService {
     const pageSize = Math.min(params.pageSize ?? 20, 100);
     const where = params.status ? { status: params.status } : {};
     const [items, total] = await this.prisma.$transaction([
-      this.prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.prisma.order.findMany({
+        where,
+        include: { items: true, driver: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
       this.prisma.order.count({ where }),
     ]);
     return { items, total, page, pageSize };

@@ -6,23 +6,38 @@ import { DriversService } from '../drivers/drivers.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { AuditService } from '../audit/audit.service';
 
-// admin/app.js and employee/app.js render against the OLD flat Apps-Script
-// era shape (o.totalPrice, i.qty, i.price, p.category as a plain string,
-// capitalized status labels) — not our Prisma model's field names
-// (o.total, i.quantity, i.unitPrice, a relational Category, lowercase
-// snake_case status). Every response built in this file is translated to
-// that old shape here, in one place, so admin/app.js and employee/app.js
-// never need to change at all. Prisma's Decimal fields are also explicitly
-// coerced with Number(...) — Decimal serializes to JSON as a string, which
-// is why `.toFixed()` on a raw Prisma price/total blows up client-side.
-const STATUS_TO_LEGACY: Record<string, string> = {
+/**
+ * Compatibility layer for employee/app.js and admin/app.js — keeps their
+ * existing `api(action, payload)` call sites working against a single
+ * dispatcher endpoint (some actions here, like getStats/deleteAllOrders,
+ * have no individual REST equivalent yet) while the *authentication*
+ * underneath has moved on twice:
+ *
+ *   v1: a single shared Apps Script secret, same key for every staff member
+ *   v2: accessKey = "a staff member's password", brute-force bcrypt-compared
+ *       against every staff user on every request (O(n), no session state)
+ *   v3 (current): real JWT from POST /api/auth/login. The controller now
+ *       requires JwtAuthGuard + RolesGuard before this service ever runs,
+ *       so `dispatch()` receives an already-authenticated userId instead
+ *       of a raw accessKey to check itself.
+ *
+ * IMPORTANT — legacy response shapes:
+ * admin/app.js and employee/app.js were never updated to the new Prisma
+ * field names/types (they still expect the old Google-Sheets-era flat
+ * shape: `o.totalPrice`, `o.phone`, `p.category` as a plain string,
+ * Title-Case status labels, etc). Every action below returns data already
+ * translated into that legacy shape so the frontend doesn't need to change.
+ */
+
+const STATUS_TO_DISPLAY: Record<string, string> = {
   pending: 'Pending',
-  confirmed: 'Preparing', // no separate "confirmed" bucket in the old UI
+  confirmed: 'Pending',
   preparing: 'Preparing',
   out_for_delivery: 'Out for Delivery',
   delivered: 'Delivered',
   cancelled: 'Cancelled',
 };
+
 const STATUS_TO_INTERNAL: Record<string, string> = {
   Pending: 'pending',
   Preparing: 'preparing',
@@ -30,15 +45,6 @@ const STATUS_TO_INTERNAL: Record<string, string> = {
   Delivered: 'delivered',
   Cancelled: 'cancelled',
 };
-
-function slugify(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `category-${Date.now()}`;
-}
-
-function splitDateTime(d: Date): { date: string; time: string } {
-  const iso = d.toISOString();
-  return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
-}
 
 @Injectable()
 export class LegacyActionsService {
@@ -51,7 +57,98 @@ export class LegacyActionsService {
     private audit: AuditService,
   ) {}
 
-  private toProductCreateInput(payload: Record<string, any>) {
+  // ---------------------------------------------------------------------
+  // Shape translators: Prisma model -> legacy flat shape the frontend reads
+  // ---------------------------------------------------------------------
+
+  private toNum(value: unknown): number {
+    if (value === null || value === undefined) return 0;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  private mapProduct(p: any) {
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description ?? '',
+      category: p.category?.name ?? 'Uncategorized',
+      price: this.toNum(p.price),
+      image: p.imageUrl ?? '',
+      available: p.available,
+    };
+  }
+
+  private mapOrder(o: any) {
+    const created = o.createdAt ? new Date(o.createdAt) : new Date();
+    return {
+      id: o.id,
+      customerName: o.customerName,
+      phone: o.customerPhone,
+      items: (o.items ?? []).map((i: any) => ({
+        name: i.nameSnapshot,
+        qty: i.quantity,
+        price: this.toNum(i.unitPrice),
+      })),
+      totalPrice: this.toNum(o.total),
+      status: STATUS_TO_DISPLAY[o.status] ?? o.status,
+      assignedDriver: o.driverId ?? null,
+      driverName: o.driver?.name ?? null,
+      date: created.toISOString().slice(0, 10),
+      time: created.toISOString().slice(11, 16),
+    };
+  }
+
+  private mapDriver(d: any) {
+    return {
+      id: d.id,
+      name: d.name,
+      phone: d.phone ?? '',
+      available: d.available,
+    };
+  }
+
+  /**
+   * The legacy `addProduct`/`editProduct` actions send a plain-text
+   * `category` name (there was no categories table before), while the
+   * current schema needs a `categoryId` foreign key. Find-or-create the
+   * category by (case-insensitive) name so staff can keep typing free-text
+   * category names exactly like before.
+   */
+  private async resolveCategoryId(categoryName: unknown): Promise<string | undefined> {
+    if (typeof categoryName !== 'string' || !categoryName.trim()) return undefined;
+    const name = categoryName.trim();
+
+    const existing = await this.prisma.category.findFirst({ where: { name: { equals: name, mode: 'insensitive' } } });
+    if (existing) return existing.id;
+
+    const baseSlug = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || 'category';
+    let slug = baseSlug;
+    let suffix = 1;
+    // Slugs must be unique — extremely unlikely to collide, but guard anyway.
+    while (await this.prisma.category.findUnique({ where: { slug } })) {
+      slug = `${baseSlug}-${++suffix}`;
+    }
+
+    const created = await this.prisma.category.create({ data: { name, slug } });
+    return created.id;
+  }
+
+  /**
+   * The legacy `addProduct` action sends a loose, untyped payload (it used
+   * to go straight into a Google Sheets row). ProductsService.create()
+   * requires `name: string` and `price: number`; this validates both are
+   * actually present and coerces types (price arrives as a string from some
+   * older client builds) instead of passing the raw payload through and
+   * letting either Prisma or TypeScript reject it. `category` (free-text
+   * name) and `image` (legacy field name) are translated to the current
+   * `categoryId`/`imageUrl` columns.
+   */
+  private async toProductCreateInput(payload: Record<string, any>) {
     const name = typeof payload.name === 'string' ? payload.name.trim() : '';
     if (!name) throw new BadRequestException('Product name is required');
 
@@ -60,28 +157,36 @@ export class LegacyActionsService {
 
     return {
       name,
-      price,
       description: typeof payload.description === 'string' ? payload.description : undefined,
-      imageUrl: typeof payload.image === 'string' && payload.image ? payload.image : undefined,
-      ...(typeof payload.available === 'boolean' ? { available: payload.available } : {}),
+      price,
+      categoryId: await this.resolveCategoryId(payload.category),
+      imageUrl: typeof payload.image === 'string' ? payload.image : undefined,
     };
   }
 
-  /**
-   * The old product form sends a flat `category` string (e.g. "Citrus"),
-   * not a `categoryId` FK — our schema stores categories relationally.
-   * Finds-or-creates a Category row by name so the old free-text UX keeps
-   * working without the frontend knowing categories are now a real table.
-   */
-  private async resolveCategoryId(categoryName: unknown): Promise<string | undefined> {
-    if (typeof categoryName !== 'string' || !categoryName.trim()) return undefined;
-    const name = categoryName.trim();
-    const existing = await this.prisma.category.findFirst({ where: { name } });
-    if (existing) return existing.id;
-    const created = await this.prisma.category.create({ data: { name, slug: slugify(name) } });
-    return created.id;
+  private async toProductUpdateInput(payload: Record<string, any>) {
+    const data: Record<string, any> = {};
+    if (typeof payload.name === 'string' && payload.name.trim()) data.name = payload.name.trim();
+    if (typeof payload.description === 'string') data.description = payload.description;
+    if (payload.price !== undefined) {
+      const price = typeof payload.price === 'number' ? payload.price : Number(payload.price);
+      if (!Number.isFinite(price) || price < 0) throw new BadRequestException('Product price must be a valid non-negative number');
+      data.price = price;
+    }
+    if (payload.category !== undefined) {
+      const categoryId = await this.resolveCategoryId(payload.category);
+      if (categoryId) data.categoryId = categoryId;
+    }
+    if (typeof payload.image === 'string') data.imageUrl = payload.image;
+    if (typeof payload.available === 'boolean') data.available = payload.available;
+    return data;
   }
 
+  /**
+   * Same reasoning as toProductCreateInput: DriversService.create() requires
+   * `name: string`; the legacy `addDriver` action doesn't guarantee one was
+   * sent, so validate it explicitly rather than passing payload through.
+   */
   private toDriverCreateInput(payload: Record<string, any>) {
     const name = typeof payload.name === 'string' ? payload.name.trim() : '';
     if (!name) throw new BadRequestException('Driver name is required');
@@ -92,36 +197,6 @@ export class LegacyActionsService {
       email: typeof payload.email === 'string' ? payload.email : undefined,
       password: typeof payload.password === 'string' ? payload.password : undefined,
       branchId: typeof payload.branchId === 'string' ? payload.branchId : undefined,
-    };
-  }
-
-  private mapProduct(p: any) {
-    return {
-      id: p.id,
-      name: p.name,
-      category: p.category?.name ?? '',
-      price: Number(p.price),
-      image: p.imageUrl ?? '',
-      available: p.available,
-    };
-  }
-
-  private mapOrderItem(i: any) {
-    return { name: i.nameSnapshot, qty: i.quantity, price: Number(i.unitPrice) };
-  }
-
-  private mapOrder(o: any) {
-    const { date, time } = splitDateTime(new Date(o.createdAt));
-    return {
-      id: o.id,
-      customerName: o.customerName,
-      phone: o.customerPhone,
-      items: (o.items ?? []).map(this.mapOrderItem),
-      totalPrice: Number(o.total),
-      status: STATUS_TO_LEGACY[o.status] ?? o.status,
-      assignedDriver: o.driverId ?? null,
-      date,
-      time,
     };
   }
 
@@ -147,95 +222,73 @@ export class LegacyActionsService {
         return logAndReturn({ id: staff.id, name: staff.name, role: staff.role?.name });
 
       case 'getProducts': {
-        const { items } = await this.products.list({ pageSize: 200 });
+        const { items } = await this.products.list({ pageSize: 200, includeUnavailable: true });
         return logAndReturn(items.map((p) => this.mapProduct(p)));
       }
-      case 'addProduct': {
-        const categoryId = await this.resolveCategoryId(payload.category);
-        const created = await this.products.create({ ...this.toProductCreateInput(payload), categoryId });
-        const withCategory = await this.prisma.product.findUnique({ where: { id: created.id }, include: { category: true } });
-        return logAndReturn(this.mapProduct(withCategory));
-      }
-      case 'editProduct': {
-        const categoryId = await this.resolveCategoryId(payload.category);
-        await this.products.update(payload.id, {
-          ...(typeof payload.name === 'string' ? { name: payload.name } : {}),
-          ...(payload.price !== undefined ? { price: Number(payload.price) } : {}),
-          ...(payload.description !== undefined ? { description: payload.description } : {}),
-          ...(typeof payload.image === 'string' && payload.image ? { imageUrl: payload.image } : {}),
-          ...(typeof payload.available === 'boolean' ? { available: payload.available } : {}),
-          ...(categoryId ? { categoryId } : {}),
-        });
-        const withCategory = await this.prisma.product.findUnique({ where: { id: payload.id }, include: { category: true } });
-        return logAndReturn(this.mapProduct(withCategory));
-      }
+      case 'addProduct':
+        return logAndReturn(this.mapProduct(await this.products.create(await this.toProductCreateInput(payload))));
+      case 'editProduct':
+        return logAndReturn(this.mapProduct(await this.products.update(payload.id, await this.toProductUpdateInput(payload))));
       case 'deleteProduct':
-        return logAndReturn(await this.products.remove(payload.id));
+        return logAndReturn(await this.products.remove(payload.id).then(() => ({ deleted: true })));
 
       case 'getOrders': {
-        const internalStatus = payload.status ? STATUS_TO_INTERNAL[payload.status] : undefined;
-        const { items } = await this.orders.list({ status: internalStatus, pageSize: 200 });
-        // list() doesn't include items/driver — fetch each order's full
-        // detail so mapOrder has what it needs. Fine at this scale (staff
-        // dashboards, not a high-traffic customer endpoint); switch to a
-        // single findMany with `include` if the order count grows large.
-        const full = await Promise.all(items.map((o) => this.orders.findOne(o.id)));
-        return logAndReturn(full.map((o) => this.mapOrder(o)));
+        const { items } = await this.orders.list({ status: payload.status, pageSize: 200 });
+        return logAndReturn(items.map((o) => this.mapOrder(o)));
       }
       case 'updateOrderStatus': {
         const internalStatus = STATUS_TO_INTERNAL[payload.status] ?? payload.status;
-        const updated = await this.orders.updateStatus(payload.orderId, internalStatus, staff.id);
-        return logAndReturn(this.mapOrder(await this.orders.findOne(updated.id)));
+        return logAndReturn(this.mapOrder(await this.orders.updateStatus(payload.orderId, internalStatus, staff.id)));
       }
-      case 'assignDriver': {
-        const updated = await this.orders.assignDriver(payload.orderId, payload.driverId, staff.id);
-        return logAndReturn(this.mapOrder(await this.orders.findOne(updated.id)));
-      }
+      case 'assignDriver':
+        return logAndReturn(this.mapOrder(await this.orders.assignDriver(payload.orderId, payload.driverId, staff.id)));
 
       case 'getDrivers':
-        return logAndReturn(await this.drivers.list());
+        return logAndReturn((await this.drivers.list()).map((d) => this.mapDriver(d)));
       case 'addDriver':
-        return logAndReturn(await this.drivers.create(this.toDriverCreateInput(payload)));
+        return logAndReturn(this.mapDriver(await this.drivers.create(this.toDriverCreateInput(payload))));
       case 'editDriver':
-        return logAndReturn(await this.drivers.updatePassword(payload.id, payload.password));
+        return logAndReturn(
+          this.mapDriver(
+            await this.drivers.updateDetails(payload.id, {
+              name: typeof payload.name === 'string' ? payload.name.trim() : undefined,
+              phone: typeof payload.phone === 'string' ? payload.phone : undefined,
+              available: typeof payload.available === 'boolean' ? payload.available : undefined,
+            }),
+          ),
+        );
       case 'deleteDriver':
-        return logAndReturn(await this.drivers.setAvailability(payload.id, false));
+        return logAndReturn(await this.drivers.setAvailability(payload.id, false).then(() => ({ deleted: true })));
 
       case 'getInvoiceData': {
-        const o = await this.orders.findOne(payload.orderId);
-        await this.invoices.findByOrder(payload.orderId).catch(() => this.invoices.generateForOrder(payload.orderId));
-        const { date, time } = splitDateTime(new Date(o.createdAt));
-        return logAndReturn({
-          id: o.id,
-          customerName: o.customerName,
-          phone: o.customerPhone,
-          date,
-          time,
-          driverName: (o as any).driver?.name ?? null,
-          items: (o.items ?? []).map((i) => this.mapOrderItem(i)),
-          totalPrice: Number(o.total),
-        });
+        const order = await this.orders.findOne(payload.orderId);
+        // Best-effort: keep an Invoice record for future PDF generation, but
+        // never let that side effect block the dashboard from showing data.
+        await this.invoices.generateForOrder(payload.orderId).catch(() => undefined);
+        return logAndReturn(this.mapOrder(order));
       }
 
       case 'getStats': {
-        const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const startOfMonth = new Date(startOfDay.getFullYear(), startOfDay.getMonth(), 1);
 
-        const [totalOrders, pendingOrders, dailyAgg, monthlyAgg, totalAgg] = await this.prisma.$transaction([
+        const [totalOrders, completedCount, cancelledCount, dailyAgg, monthlyAgg, totalAgg] = await this.prisma.$transaction([
           this.prisma.order.count(),
-          this.prisma.order.count({ where: { status: { in: ['pending', 'confirmed', 'preparing'] } } }),
-          this.prisma.order.aggregate({ _sum: { total: true }, where: { status: 'delivered', createdAt: { gte: todayStart } } }),
-          this.prisma.order.aggregate({ _sum: { total: true }, where: { status: 'delivered', createdAt: { gte: monthStart } } }),
+          this.prisma.order.count({ where: { status: 'delivered' } }),
+          this.prisma.order.count({ where: { status: 'cancelled' } }),
+          this.prisma.order.aggregate({ _sum: { total: true }, where: { status: 'delivered', createdAt: { gte: startOfDay } } }),
+          this.prisma.order.aggregate({ _sum: { total: true }, where: { status: 'delivered', createdAt: { gte: startOfMonth } } }),
           this.prisma.order.aggregate({ _sum: { total: true }, where: { status: 'delivered' } }),
         ]);
 
         return logAndReturn({
           totalOrders,
-          pendingOrders,
-          dailySales: Number(dailyAgg._sum.total ?? 0),
-          monthlySales: Number(monthlyAgg._sum.total ?? 0),
-          totalRevenue: Number(totalAgg._sum.total ?? 0),
+          completedCount,
+          cancelledCount,
+          dailySales: this.toNum(dailyAgg._sum.total),
+          monthlySales: this.toNum(monthlyAgg._sum.total),
+          totalRevenue: this.toNum(totalAgg._sum.total),
         });
       }
 
