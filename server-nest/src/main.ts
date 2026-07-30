@@ -32,7 +32,7 @@ async function bootstrap() {
 
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
-    .map((s) => s.trim().replace(/\/$/, '')) // normalize: trim whitespace + trailing slash
+    .map((s) => s.trim().replace(/^["']|["']$/g, '').replace(/\/$/, '')) // strip stray quotes (a common copy-paste mistake when setting this in Railway's UI) + trailing slash
     .filter(Boolean);
 
   const isOriginAllowed = (origin: string | undefined): boolean => {
