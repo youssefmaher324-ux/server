@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { getJwtAccessSecret } from '../config/jwt.config';
+import { MailService } from '../notifications/mail.service';
 
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL_DAYS_DEFAULT = 30;
@@ -24,12 +25,21 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private audit: AuditService,
+    private mail: MailService,
   ) {}
 
   // ---- OTP ---------------------------------------------------------------
 
   async requestOtp(identifier: string, purpose: 'login' | 'verify_email' | 'reset_password' = 'login') {
     const isEmail = identifier.includes('@');
+    // SMS delivery isn't wired up yet (no provider configured) — only email
+    // identifiers can actually receive a code right now. Reject phone
+    // numbers explicitly instead of silently returning success:true for a
+    // code nobody will ever see.
+    if (!isEmail) {
+      throw new BadRequestException('Please use your email address to sign in — phone/SMS login isn\'t available yet.');
+    }
+
     const code = randomOtp();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
@@ -42,12 +52,14 @@ export class AuthService {
       data: { userId: user?.id, identifier, codeHash, purpose, expiresAt },
     });
 
-    // In production this dispatches via the notifications module (email/SMS
-    // provider). Never log the raw code outside of local development.
+    // Always log locally for easy debugging; always attempt real delivery
+    // too (MailService no-ops safely if GMAIL_USER/GMAIL_APP_PASSWORD aren't
+    // configured yet, logging a warning instead of throwing).
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
       console.log(`[OTP:${purpose}] ${identifier} -> ${code}`);
     }
+    await this.mail.sendOtpEmail(identifier, code);
 
     return { success: true };
   }

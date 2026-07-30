@@ -10,14 +10,22 @@ import { ProductsService } from './products.service';
 export class ProductsController {
   constructor(private products: ProductsService) {}
 
+  // Prisma's `price` column is Decimal, which JSON-serializes as a string —
+  // customer/app.js does arithmetic and .toFixed() directly on this field,
+  // so every response here converts it to a real number first.
+  private serialize(p: any) {
+    return { ...p, price: p.price !== undefined ? Number(p.price) : p.price };
+  }
+
   @Get()
-  list(@Query('categoryId') categoryId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.products.list({ categoryId, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  async list(@Query('categoryId') categoryId?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    const result = await this.products.list({ categoryId, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return { ...result, items: result.items.map((p) => this.serialize(p)) };
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.products.findOne(id);
+  async findOne(@Param('id') id: string) {
+    return this.serialize(await this.products.findOne(id));
   }
 
   @ApiBearerAuth()

@@ -42,6 +42,7 @@
     </nav>
     <div class="header-actions">
       <button class="icon-btn" id="searchToggle" aria-label="Search">🔍</button>
+      <button class="icon-btn" id="authBtn" aria-label="Account">👤 Sign In</button>
       <button class="icon-btn cart-btn" id="cartToggle" aria-label="Cart">
         🧺 <span class="cart-count" id="cartCount">0</span>
       </button>
@@ -57,6 +58,14 @@
 
   <!-- ============================= HOME VIEW ============================= -->
   <section class="view" id="view-home">
+    <div class="banner-slider" id="bannerSlider" style="display:none;">
+      <img id="bannerImg" alt="" />
+      <div class="banner-copy">
+        <h3 id="bannerTitle"></h3>
+        <p id="bannerSub"></p>
+      </div>
+    </div>
+
     <section class="hero">
       <div class="hero-pulp-texture"></div>
       <div class="hero-inner">
@@ -216,9 +225,44 @@
       <button class="btn btn-primary" id="trackBtn">Track</button>
     </div>
     <div id="trackResult"></div>
+    <div class="gps-card" id="gpsCard" hidden>
+      <p id="driverInfo"></p>
+      <p id="gpsCoords"></p>
+    </div>
   </section>
 
 </main>
+
+<!-- ============================= AUTH MODAL ============================= -->
+<div class="scrim" id="authModalScrim">
+  <div class="auth-modal">
+    <button class="icon-btn auth-modal-close" id="authModalClose">✕</button>
+
+    <div id="step1">
+      <h2>Sign In</h2>
+      <p class="auth-modal-sub">Enter your email — we'll send you a one-time login code.</p>
+      <label>
+        Email Address
+        <input type="email" id="otpIdentifier" placeholder="you@example.com" />
+      </label>
+      <button class="btn btn-primary btn-block" id="sendOtpBtn">Send Code ↦</button>
+    </div>
+
+    <div id="step2" hidden>
+      <h2>Enter Your Code</h2>
+      <p class="auth-modal-sub">Check your email for the 6-digit code.</p>
+      <label>
+        Verification Code
+        <input type="text" id="otpCode" inputmode="numeric" maxlength="6" placeholder="123456" />
+      </label>
+      <label>
+        Your Name (first time only)
+        <input type="text" id="userName" placeholder="Amina Youssef" />
+      </label>
+      <button class="btn btn-primary btn-block" id="verifyOtpBtn">Verify &amp; Sign In ↦</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============================= TOAST ============================= -->
 <div class="toast" id="toast"></div>

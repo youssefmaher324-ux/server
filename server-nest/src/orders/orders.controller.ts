@@ -11,15 +11,28 @@ import { OrdersService } from './orders.service';
 export class OrdersController {
   constructor(private orders: OrdersService) {}
 
+  // Prisma's total/subtotal/discountTotal columns are Decimal, which
+  // JSON-serializes as strings — customer/app.js reads order.total directly
+  // for the checkout success screen and cancel flow, so convert here.
+  private serialize(o: any) {
+    return {
+      ...o,
+      subtotal: o.subtotal !== undefined ? Number(o.subtotal) : o.subtotal,
+      discountTotal: o.discountTotal !== undefined ? Number(o.discountTotal) : o.discountTotal,
+      total: o.total !== undefined ? Number(o.total) : o.total,
+      items: Array.isArray(o.items) ? o.items.map((i: any) => ({ ...i, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal) })) : o.items,
+    };
+  }
+
   @Throttle({ default: { limit: 20, ttl: 3600_000 } }) // spam control on order creation
   @Post()
-  create(@Body() body: any, @Req() req: any) {
-    return this.orders.create({ ...body, userId: req.user?.userId });
+  async create(@Body() body: any, @Req() req: any) {
+    return this.serialize(await this.orders.create({ ...body, userId: req.user?.userId }));
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.orders.findOne(id);
+  async findOne(@Param('id') id: string) {
+    return this.serialize(await this.orders.findOne(id));
   }
 
   @Get(':id/tracking')
@@ -39,8 +52,8 @@ export class OrdersController {
   }
 
   @Post(':id/cancel')
-  cancel(@Param('id') id: string, @Req() req: any) {
-    return this.orders.cancel(id, req.user?.userId);
+  async cancel(@Param('id') id: string, @Req() req: any) {
+    return this.serialize(await this.orders.cancel(id, req.user?.userId));
   }
 
   @ApiBearerAuth()
