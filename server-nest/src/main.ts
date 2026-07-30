@@ -32,15 +32,89 @@ async function bootstrap() {
 
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/\/$/, '')) // normalize: trim whitespace + trailing slash
     .filter(Boolean);
 
+  const isOriginAllowed = (origin: string | undefined): boolean => {
+    if (!origin) return true; // same-origin / curl / server-to-server — no Origin header at all
+    if (!allowedOrigins.length) return true; // ALLOWED_ORIGINS unset -> dev fallback, allow all
+    const normalized = origin.replace(/\/$/, '');
+    return allowedOrigins.some((o) => o.toLowerCase() === normalized.toLowerCase());
+  };
+
+  // ---------------------------------------------------------------------
+  // CORS AUDIT — explicit preflight short-circuit (registered before
+  // EVERYTHING else, including helmet/cookieParser/csurf).
+  //
+  // app.enableCors() below is Nest's normal, correct way to do this, and on
+  // its own is sufficient in the overwhelming majority of setups. This raw
+  // handler is deliberate belt-and-suspenders on top of it, added because:
+  //
+  //  1. It guarantees OPTIONS is answered by the very first middleware in
+  //     the stack, with zero dependency on Nest's routing/guards/pipes ever
+  //     running — so a future global guard, interceptor, or filter added
+  //     anywhere in the app can NEVER accidentally intercept or delay a
+  //     preflight response again.
+  //  2. It logs any rejected Origin to the server logs, which
+  //     app.enableCors() does not do by default — makes a future
+  //     ALLOWED_ORIGINS mismatch (trailing slash, wrong scheme, stale
+  //     Vercel preview URL) immediately visible in Railway logs instead of
+  //     only failing silently in the browser as "Failed to fetch".
+  // ---------------------------------------------------------------------
+  app.use((req: any, res: any, next: any) => {
+    const origin = req.headers.origin as string | undefined;
+    const allowed = isOriginAllowed(origin);
+
+    if (origin && allowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else if (origin && !allowed) {
+      // eslint-disable-next-line no-console
+      console.warn(`[CORS] Rejected Origin "${origin}" — not in ALLOWED_ORIGINS (${allowedOrigins.join(', ') || '(empty)'})`);
+    }
+
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        (req.headers['access-control-request-headers'] as string) || 'Content-Type, Authorization, X-CSRF-Token',
+      );
+      res.setHeader('Access-Control-Max-Age', '86400'); // cache preflight 24h — fewer round-trips
+      return res.sendStatus(204);
+    }
+
+    next();
+  });
+
+  // Nest's own CORS handling — kept as the primary mechanism for real
+  // (non-OPTIONS) responses. Custom origin function matches the same
+  // normalized/case-insensitive logic as the raw handler above, and logs
+  // rejections the same way, so both layers agree with each other.
   app.enableCors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      console.warn(`[CORS] Rejected Origin "${origin}" — not in ALLOWED_ORIGINS (${allowedOrigins.join(', ') || '(empty)'})`);
+      return callback(null, false);
+    },
     credentials: true,
   });
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      // Default (v7) sets Cross-Origin-Resource-Policy: same-origin, which
+      // makes browsers block the RESPONSE body of a successful cross-origin
+      // fetch even when the CORS headers above are completely correct —
+      // this API is deliberately called from separate-origin static sites
+      // (customer/employee/admin/delivery), so it must opt out of that.
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      // Same story for COOP — 'same-origin' (the v7 default) is meant for
+      // apps that open popups/windows to their own origin; it isn't needed
+      // here and has caused false-positive fetch blocking in some browsers
+      // when combined with credentialed cross-origin requests.
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    }),
+  );
   app.use(cookieParser());
 
   // CSRF protection (double-submit cookie pattern via `csurf`).
