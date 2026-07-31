@@ -22,7 +22,16 @@ export class HealthController {
    */
   @Get()
   liveness() {
-    return { status: 'ok', service: 'citrine-backend', timestamp: new Date().toISOString() };
+    return {
+      status: 'ok',
+      service: 'citrine-backend',
+      // Bump this string on every meaningful backend change. Lets anyone
+      // confirm from a plain browser tab — no logs, no GitHub, no Railway
+      // dashboard needed — whether a given deploy is actually the one
+      // that's live yet.
+      build: 'mail-service-port-fallback-2026-07-31',
+      timestamp: new Date().toISOString(),
+    };
   }
 
   /**

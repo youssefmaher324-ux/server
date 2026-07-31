@@ -30,9 +30,9 @@ export class MailService {
       requireTLS: port === 587,
       auth: { user, pass },
       family: 4, // see getTransporter() comment — avoids the IPv6 timeout trap
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 10_000,
+      connectionTimeout: 6_000,
+      greetingTimeout: 6_000,
+      socketTimeout: 6_000,
     });
   }
 
