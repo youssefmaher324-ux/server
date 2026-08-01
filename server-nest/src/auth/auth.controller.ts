@@ -72,6 +72,14 @@ export class AuthController {
     return { success: true, user: result.user, accessToken: result.accessToken };
   }
 
+  @Throttle({ default: { limit: 20, ttl: 3600_000 } })
+  @Post('google')
+  async google(@Body() dto: { idToken: string; rememberMe?: boolean }, @Ip() ip: string, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.loginWithGoogle(dto.idToken, dto.rememberMe, { ip, userAgent: req.headers['user-agent'] });
+    this.setAuthCookies(res, result.accessToken, result.refreshToken, result.expiresAt);
+    return { success: true, user: result.user, accessToken: result.accessToken };
+  }
+
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })
   @Post('register')
   async register(@Body() dto: RegisterDto) {

@@ -29,7 +29,7 @@ export class HealthController {
       // confirm from a plain browser tab — no logs, no GitHub, no Railway
       // dashboard needed — whether a given deploy is actually the one
       // that's live yet.
-      build: 'mail-service-resend-2026-07-31',
+      build: 'profile-page-password-signup-2026-07-31',
       timestamp: new Date().toISOString(),
     };
   }

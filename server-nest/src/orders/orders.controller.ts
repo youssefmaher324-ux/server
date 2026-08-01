@@ -24,10 +24,12 @@ export class OrdersController {
     };
   }
 
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @Throttle({ default: { limit: 20, ttl: 3600_000 } }) // spam control on order creation
   @Post()
   async create(@Body() body: any, @Req() req: any) {
-    return this.serialize(await this.orders.create({ ...body, userId: req.user?.userId }));
+    return this.serialize(await this.orders.create({ ...body, userId: req.user.userId }));
   }
 
   @Get(':id')

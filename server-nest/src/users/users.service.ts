@@ -17,7 +17,9 @@ export class UsersService {
   }
 
   async updateProfile(userId: string, data: { name?: string; phone?: string }) {
-    return this.prisma.user.update({ where: { id: userId }, data });
+    const user = await this.prisma.user.update({ where: { id: userId }, data });
+    const { passwordHash, otpCode, otpExpires, ...safe } = user;
+    return safe;
   }
 
   async getOrders(userId: string, page = 1, pageSize = 20) {

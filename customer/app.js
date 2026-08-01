@@ -1,6 +1,13 @@
 // Was the old Node proxy in front of Apps Script (server/). Now points at
 // the NestJS backend's REST endpoints directly (server-nest/).
-const CONFIG = { API_URL: 'https://server-production-036d.up.railway.app/api' };
+const CONFIG = {
+  API_URL: 'https://server-production-036d.up.railway.app/api',
+  // From Google Cloud Console → APIs & Services → Credentials → OAuth
+  // client ID (Web application) → add this site's Vercel URL under
+  // "Authorized JavaScript origins". Leave as-is to hide the Google button
+  // and fall back to email-code sign-in only.
+  GOOGLE_CLIENT_ID: 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com',
+};
 let userToken = localStorage.getItem('citrine_token') || null;
 let userData = JSON.parse(localStorage.getItem('citrine_user') || 'null');
 
@@ -12,9 +19,12 @@ let currentSearch = '';
 let currentProductId = null;
 let lastOrder = null;
 let cancelTimerInterval = null;
+let pendingCheckoutAfterLogin = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   initAuth();
+  initAccount();
+  initProfile();
   initNav();
   initSearch();
   initCart();
@@ -36,8 +46,17 @@ function initAuth() {
 
   if (userData) authBtn.textContent = `👤 ${userData.name || 'حسابي'}`;
 
+  initGoogleSignIn();
+
   const closeModal = () => modal.classList.remove('open');
-  authBtn?.addEventListener('click', () => modal.classList.add('open'));
+  authBtn?.addEventListener('click', () => {
+    if (userData) {
+      showView('profile');
+      loadProfile();
+    } else {
+      modal.classList.add('open');
+    }
+  });
   closeBtn?.addEventListener('click', closeModal);
   modal?.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
@@ -92,6 +111,7 @@ function initAuth() {
       document.getElementById('step1').hidden = false;
       document.getElementById('step2').hidden = true;
       toast('تم تسجيل الدخول بنجاح!');
+      if (pendingCheckoutAfterLogin) { pendingCheckoutAfterLogin = false; proceedToCheckout(); }
     } catch (e) {
       alert(e.message || 'رمز التحقق غير صحيح');
     } finally {
@@ -99,11 +119,308 @@ function initAuth() {
       verifyOtpBtn.textContent = 'Verify & Sign In ↦';
     }
   });
+
+  // ---- toggling between OTP / password-login / register ----
+  const showStep = (id) => {
+    ['step1', 'step2', 'stepPasswordLogin', 'stepRegister'].forEach((s) => {
+      document.getElementById(s).hidden = s !== id;
+    });
+  };
+  document.getElementById('showPasswordLoginLink')?.addEventListener('click', (e) => { e.preventDefault(); showStep('stepPasswordLogin'); });
+  document.getElementById('showRegisterLink')?.addEventListener('click', (e) => { e.preventDefault(); showStep('stepRegister'); });
+  document.getElementById('backToStep1FromLogin')?.addEventListener('click', (e) => { e.preventDefault(); showStep('step1'); });
+  document.getElementById('backToStep1FromRegister')?.addEventListener('click', (e) => { e.preventDefault(); showStep('step1'); });
+
+  const onSignedIn = (user, token) => {
+    userToken = token;
+    userData = user;
+    localStorage.setItem('citrine_token', userToken);
+    localStorage.setItem('citrine_user', JSON.stringify(userData));
+    authBtn.textContent = `👤 ${userData.name || 'حسابي'}`;
+    closeModal();
+    showStep('step1');
+    toast('تم تسجيل الدخول بنجاح!');
+    if (pendingCheckoutAfterLogin) { pendingCheckoutAfterLogin = false; proceedToCheckout(); }
+  };
+
+  document.getElementById('loginSubmitBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('loginSubmitBtn');
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    if (!email || !password) return alert('أدخل الإيميل وكلمة السر');
+
+    btn.disabled = true;
+    btn.textContent = 'جاري الدخول…';
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'الإيميل أو كلمة السر غير صحيحة');
+      document.getElementById('loginPassword').value = '';
+      onSignedIn(data.user, data.accessToken);
+    } catch (e) {
+      alert(e.message || 'حدث خطأ أثناء تسجيل الدخول');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sign In ↦';
+    }
+  });
+
+  document.getElementById('registerSubmitBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('registerSubmitBtn');
+    const name = document.getElementById('registerName').value.trim();
+    const email = document.getElementById('registerEmail').value.trim();
+    const phone = document.getElementById('registerPhone').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    if (!name || !email || !phone || password.length < 8) return alert('املا كل الحقول (كلمة السر 8 حروف على الأقل)');
+
+    btn.disabled = true;
+    btn.textContent = 'جاري الإنشاء…';
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, phone, password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'تعذر إنشاء الحساب');
+
+      // Registration only creates the account — sign the person straight in
+      // with the password they just set, instead of making them do it twice.
+      const loginRes = await fetch(`${CONFIG.API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password })
+      });
+      const loginData = await loginRes.json();
+      if (!loginRes.ok || !loginData.success) throw new Error('تم إنشاء الحساب — سجّل دخولك يدويًا');
+
+      document.getElementById('registerPassword').value = '';
+      onSignedIn(loginData.user, loginData.accessToken);
+    } catch (e) {
+      alert(e.message || 'حدث خطأ أثناء إنشاء الحساب');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Create Account ↦';
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
-// تحميل بنرات العروض
+// تسجيل الدخول بحساب جوجل (Google Identity Services)
 // ---------------------------------------------------------------------------
+function initGoogleSignIn() {
+  const container = document.getElementById('googleSignInBtn');
+  const divider = document.querySelector('.auth-divider');
+  if (!container) return;
+
+  if (!CONFIG.GOOGLE_CLIENT_ID || CONFIG.GOOGLE_CLIENT_ID.startsWith('YOUR_GOOGLE_CLIENT_ID')) {
+    // Not configured yet — hide the Google option entirely rather than show
+    // a button that fails when clicked.
+    container.style.display = 'none';
+    if (divider) divider.style.display = 'none';
+    return;
+  }
+
+  const tryRender = () => {
+    if (typeof google === 'undefined' || !google.accounts?.id) {
+      setTimeout(tryRender, 300); // script tag is async/defer — poll briefly until it's ready
+      return;
+    }
+    google.accounts.id.initialize({ client_id: CONFIG.GOOGLE_CLIENT_ID, callback: handleGoogleCredential });
+    google.accounts.id.renderButton(container, { theme: 'outline', size: 'large', width: 300, text: 'continue_with' });
+  };
+  tryRender();
+}
+
+async function handleGoogleCredential(response) {
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ idToken: response.credential })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.message || 'تعذر تسجيل الدخول بحساب جوجل');
+
+    userToken = data.accessToken;
+    userData = data.user;
+    localStorage.setItem('citrine_token', userToken);
+    localStorage.setItem('citrine_user', JSON.stringify(userData));
+    document.getElementById('authBtn').textContent = `👤 ${userData.name || 'حسابي'}`;
+    document.getElementById('authModalScrim').classList.remove('open');
+    toast('تم تسجيل الدخول بنجاح!');
+    if (pendingCheckoutAfterLogin) { pendingCheckoutAfterLogin = false; proceedToCheckout(); }
+  } catch (e) {
+    alert(e.message || 'حدث خطأ أثناء تسجيل الدخول بحساب جوجل');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// تغيير كلمة السر (بيستخدم نفس آلية الكود اللي بتوصل بالإيميل)
+// ---------------------------------------------------------------------------
+function showAccountStep(id) {
+  ['pwStep1', 'pwStep2', 'pwSuccess'].forEach((s) => {
+    document.getElementById(s).hidden = s !== id;
+  });
+}
+
+function openChangePasswordModal() {
+  document.getElementById('pwIdentifier').value = userData?.email || '';
+  showAccountStep('pwStep1');
+  document.getElementById('accountModalScrim').classList.add('open');
+}
+
+function initAccount() {
+  const modal = document.getElementById('accountModalScrim');
+  const closeBtn = document.getElementById('accountModalClose');
+  const closeModal = () => modal.classList.remove('open');
+  closeBtn?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+  document.getElementById('pwSendCodeBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('pwSendCodeBtn');
+    const identifier = document.getElementById('pwIdentifier').value.trim();
+    if (!identifier || !identifier.includes('@')) return alert('أدخل بريد إلكتروني صحيح');
+
+    btn.disabled = true;
+    btn.textContent = 'جاري الإرسال…';
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: identifier })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'تعذر إرسال الكود');
+      toast('تم إرسال كود التأكيد إلى بريدك الإلكتروني.');
+      showAccountStep('pwStep2');
+    } catch (e) {
+      alert(e.message || 'حدث خطأ أثناء الإرسال');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send Code ↦';
+    }
+  });
+
+  document.getElementById('pwSubmitBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('pwSubmitBtn');
+    const identifier = document.getElementById('pwIdentifier').value.trim();
+    const code = document.getElementById('pwCode').value.trim();
+    const newPassword = document.getElementById('pwNew').value;
+
+    if (newPassword.length < 8) return alert('كلمة السر لازم تكون 8 حروف على الأقل');
+
+    btn.disabled = true;
+    btn.textContent = 'جاري التحديث…';
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: identifier, code, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'الكود غير صحيح');
+
+      document.getElementById('pwCode').value = '';
+      document.getElementById('pwNew').value = '';
+      showAccountStep('pwSuccess');
+    } catch (e) {
+      alert(e.message || 'حدث خطأ، حاول تاني');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Update Password ↦';
+    }
+  });
+
+  document.getElementById('pwDoneBtn')?.addEventListener('click', closeModal);
+}
+
+// ---------------------------------------------------------------------------
+// صفحة الحساب الشخصي
+// ---------------------------------------------------------------------------
+function initProfile() {
+  document.getElementById('profileChangePwBtn')?.addEventListener('click', openChangePasswordModal);
+
+  document.getElementById('profileLogoutBtn')?.addEventListener('click', () => {
+    userToken = null;
+    userData = null;
+    localStorage.removeItem('citrine_token');
+    localStorage.removeItem('citrine_user');
+    document.getElementById('authBtn').textContent = '👤 Sign In';
+    showView('home');
+    toast('تم تسجيل الخروج.');
+  });
+
+  document.getElementById('profileSaveBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('profileSaveBtn');
+    const name = document.getElementById('profileName').value.trim();
+    const phone = document.getElementById('profilePhone').value.trim();
+
+    btn.disabled = true;
+    btn.textContent = 'جاري الحفظ…';
+    try {
+      const res = await fetch(`${CONFIG.API_URL}/users/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, phone })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'تعذر الحفظ');
+
+      userData = { ...userData, name: data.name, phone: data.phone };
+      localStorage.setItem('citrine_user', JSON.stringify(userData));
+      document.getElementById('authBtn').textContent = `👤 ${userData.name || 'حسابي'}`;
+      toast('تم حفظ التعديلات.');
+    } catch (e) {
+      alert(e.message || 'حدث خطأ أثناء الحفظ');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+    }
+  });
+}
+
+async function loadProfile() {
+  document.getElementById('profileEmail').value = userData?.email || '';
+  document.getElementById('profileName').value = userData?.name || '';
+  document.getElementById('profilePhone').value = userData?.phone || '';
+
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/users/me`, { credentials: 'include' });
+    const profile = await res.json();
+    if (res.ok) {
+      document.getElementById('profileName').value = profile.name || '';
+      document.getElementById('profilePhone').value = profile.phone || '';
+      document.getElementById('profileEmail').value = profile.email || '';
+    }
+  } catch (e) { /* keep the locally-cached values already shown above */ }
+
+  const ordersEl = document.getElementById('profileOrders');
+  try {
+    const res = await fetch(`${CONFIG.API_URL}/users/me/orders`, { credentials: 'include' });
+    const orders = await res.json();
+    const list = Array.isArray(orders) ? orders : (orders.items || []);
+    ordersEl.innerHTML = list.length ? list.map((o) => `
+      <div class="profile-order">
+        <div>
+          <div class="po-id">#${esc(String(o.id).slice(0, 8))}</div>
+          <div class="po-status">${esc(o.status)}</div>
+        </div>
+        <div class="po-total">EGP ${Number(o.total).toFixed(2)}</div>
+      </div>
+    `).join('') : '<p class="empty-state">No orders yet.</p>';
+  } catch (e) {
+    ordersEl.innerHTML = '<p class="empty-state">Could not load orders.</p>';
+  }
+}
 async function loadBanners() {
   try {
     const res = await fetch(`${CONFIG.API_URL}/banners`);
@@ -406,10 +723,21 @@ function initCart() {
   document.getElementById('cartClose')?.addEventListener('click', closeCart);
   document.getElementById('scrim')?.addEventListener('click', closeCart);
   document.getElementById('checkoutBtn')?.addEventListener('click', () => {
-    closeCart();
-    prefillCheckout();
-    showView('checkout');
+    if (!userData) {
+      closeCart();
+      pendingCheckoutAfterLogin = true;
+      toast('سجّل الدخول الأول عشان تكمل الطلب.');
+      document.getElementById('authModalScrim').classList.add('open');
+      return;
+    }
+    proceedToCheckout();
   });
+}
+
+function proceedToCheckout() {
+  closeCart();
+  prefillCheckout();
+  showView('checkout');
 }
 
 function openCart() {

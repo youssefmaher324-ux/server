@@ -177,8 +177,51 @@ export class AuthService {
       this.prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
       this.prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
+    await this.mail.sendPasswordChangedEmail(email);
 
     return { success: true };
+  }
+
+  // ---- Google Sign-In ------------------------------------------------------
+
+  /**
+   * Verifies a Google ID token and logs the user in (creating an account on
+   * first sign-in). Verification is done via a plain HTTPS call to Google's
+   * own tokeninfo endpoint rather than the `google-auth-library` SDK —
+   * deliberately, so this doesn't add a new npm dependency (one more thing
+   * that could break a build) and uses the exact same "just an HTTPS fetch"
+   * pattern already proven reliable on this host (see MailService/Resend).
+   * Google's docs list this endpoint as fine for low/medium-volume
+   * server-side verification: https://developers.google.com/identity/sign-in/web/backend-auth
+   */
+  async loginWithGoogle(idToken: string, rememberMe = false, meta?: { ip?: string; userAgent?: string }) {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) throw new BadRequestException('Google Sign-In is not configured on this server yet.');
+
+    let payload: { aud?: string; email?: string; email_verified?: string; name?: string; sub?: string };
+    try {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+      if (!res.ok) throw new Error(`tokeninfo returned ${res.status}`);
+      payload = await res.json();
+    } catch (err) {
+      throw new UnauthorizedException('Could not verify Google sign-in — please try again.');
+    }
+
+    if (payload.aud !== clientId) throw new UnauthorizedException('Google token was not issued for this app.');
+    if (payload.email_verified !== 'true' || !payload.email) throw new UnauthorizedException('Google account email is not verified.');
+
+    let user = await this.prisma.user.findUnique({ where: { email: payload.email } });
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: { email: payload.email, name: payload.name || payload.email.split('@')[0], isEmailVerified: true },
+      });
+    } else if (!user.isActive) {
+      throw new UnauthorizedException('Account disabled');
+    }
+
+    const tokens = await this.issueTokenPair(user.id, user.roleId ?? undefined, user.email ?? undefined, rememberMe, meta);
+    await this.audit.log({ userId: user.id, action: 'auth.login_google', ip: meta?.ip, userAgent: meta?.userAgent });
+    return { user: { id: user.id, name: user.name, email: user.email }, ...tokens };
   }
 
   // ---- Token issuance / refresh rotation -----------------------------------

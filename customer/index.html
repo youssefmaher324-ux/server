@@ -18,9 +18,10 @@
   looser than it needs to be. Left as https: only until CONFIG.PROXY_URL in
   app.js is set to its final deployed value.
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="no-referrer" />
 <title>Citrine Juice Co. — Cold-Pressed, Delivered Fresh</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;900&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -231,6 +232,40 @@
     </div>
   </section>
 
+  <!-- ============================= PROFILE VIEW ============================= -->
+  <section class="view" id="view-profile" hidden>
+    <h1>MY ACCOUNT</h1>
+
+    <div class="profile-grid">
+      <div class="profile-card">
+        <h3>Account Details</h3>
+        <label>
+          Name
+          <input type="text" id="profileName" placeholder="Your name" />
+        </label>
+        <label>
+          Phone
+          <input type="tel" id="profilePhone" placeholder="Your phone number" />
+        </label>
+        <label>
+          Email
+          <input type="email" id="profileEmail" disabled />
+        </label>
+        <button class="btn btn-primary" id="profileSaveBtn">Save Changes</button>
+
+        <div class="profile-divider"></div>
+
+        <button class="btn btn-outline btn-block" id="profileChangePwBtn" style="margin-bottom:10px;">Set / Change Password</button>
+        <button class="btn btn-ghost btn-block" id="profileLogoutBtn">Log Out</button>
+      </div>
+
+      <div class="profile-card">
+        <h3>Order History</h3>
+        <div id="profileOrders"><p class="empty-state">Loading…</p></div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ============================= AUTH MODAL ============================= -->
@@ -240,12 +275,22 @@
 
     <div id="step1">
       <h2>Sign In</h2>
-      <p class="auth-modal-sub">Enter your email — we'll send you a one-time login code.</p>
+      <p class="auth-modal-sub">Use a one-time email code, or sign in with a password.</p>
+
+      <div id="googleSignInBtn" style="display:flex;justify-content:center;margin-bottom:18px;"></div>
+      <div class="auth-divider"><span>or</span></div>
+
       <label>
         Email Address
         <input type="email" id="otpIdentifier" placeholder="you@example.com" />
       </label>
       <button class="btn btn-primary btn-block" id="sendOtpBtn">Send Code ↦</button>
+
+      <p class="auth-modal-links">
+        <a href="#" id="showPasswordLoginLink">Sign in with a password instead</a>
+        &nbsp;·&nbsp;
+        <a href="#" id="showRegisterLink">Create an account</a>
+      </p>
     </div>
 
     <div id="step2" hidden>
@@ -260,6 +305,85 @@
         <input type="text" id="userName" placeholder="Amina Youssef" />
       </label>
       <button class="btn btn-primary btn-block" id="verifyOtpBtn">Verify &amp; Sign In ↦</button>
+    </div>
+
+    <div id="stepPasswordLogin" hidden>
+      <h2>Sign In</h2>
+      <p class="auth-modal-sub">Sign in with your email and password.</p>
+      <label>
+        Email Address
+        <input type="email" id="loginEmail" placeholder="you@example.com" />
+      </label>
+      <label>
+        Password
+        <input type="password" id="loginPassword" placeholder="Your password" />
+      </label>
+      <button class="btn btn-primary btn-block" id="loginSubmitBtn">Sign In ↦</button>
+      <p class="auth-modal-links">
+        <a href="#" id="backToStep1FromLogin">← Use a one-time code instead</a>
+      </p>
+    </div>
+
+    <div id="stepRegister" hidden>
+      <h2>Create Account</h2>
+      <p class="auth-modal-sub">Set a password so you can sign in faster next time.</p>
+      <label>
+        Name
+        <input type="text" id="registerName" placeholder="Amina Youssef" />
+      </label>
+      <label>
+        Email Address
+        <input type="email" id="registerEmail" placeholder="you@example.com" />
+      </label>
+      <label>
+        Phone
+        <input type="tel" id="registerPhone" placeholder="01xxxxxxxxx" />
+      </label>
+      <label>
+        Password
+        <input type="password" id="registerPassword" placeholder="At least 8 characters" />
+      </label>
+      <button class="btn btn-primary btn-block" id="registerSubmitBtn">Create Account ↦</button>
+      <p class="auth-modal-links">
+        <a href="#" id="backToStep1FromRegister">← Back to sign in</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================= CHANGE PASSWORD MODAL ============================= -->
+<div class="scrim" id="accountModalScrim">
+  <div class="auth-modal">
+    <button class="icon-btn auth-modal-close" id="accountModalClose">✕</button>
+
+    <div id="pwStep1">
+      <h2>Set / Change Password</h2>
+      <p class="auth-modal-sub">We'll email you a code to confirm it's you.</p>
+      <label>
+        Email Address
+        <input type="email" id="pwIdentifier" placeholder="you@example.com" />
+      </label>
+      <button class="btn btn-primary btn-block" id="pwSendCodeBtn">Send Code ↦</button>
+    </div>
+
+    <div id="pwStep2" hidden>
+      <h2>New Password</h2>
+      <p class="auth-modal-sub">Check your email for the 6-digit code.</p>
+      <label>
+        Verification Code
+        <input type="text" id="pwCode" inputmode="numeric" maxlength="6" placeholder="123456" />
+      </label>
+      <label>
+        New Password
+        <input type="password" id="pwNew" placeholder="At least 8 characters" />
+      </label>
+      <button class="btn btn-primary btn-block" id="pwSubmitBtn">Update Password ↦</button>
+    </div>
+
+    <div id="pwSuccess" hidden>
+      <h2>✓ Password Updated</h2>
+      <p class="auth-modal-sub">You've been signed out everywhere else as a precaution. A confirmation email is on its way.</p>
+      <button class="btn btn-primary btn-block" id="pwDoneBtn">Done</button>
     </div>
   </div>
 </div>

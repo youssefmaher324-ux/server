@@ -303,14 +303,14 @@ ul { margin: 0; padding: 0; list-style: none; }
 .checkout-form input:focus-visible, .checkout-form textarea:focus-visible { outline: 2px solid var(--blood-orange); }
 
 /* -------------------------------- Auth modal -------------------------------- */
-#authModalScrim { z-index: 60; }
+#authModalScrim, #accountModalScrim { z-index: 60; }
 .auth-modal {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: min(420px, calc(100vw - 40px)); background: var(--paper); border-radius: var(--radius);
   box-shadow: var(--shadow-pop); padding: 32px 28px; z-index: 61;
   opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
 }
-#authModalScrim.open .auth-modal { opacity: 1; pointer-events: auto; }
+.scrim.open .auth-modal { opacity: 1; pointer-events: auto; }
 .auth-modal h2 { font-family: var(--font-display); font-size: 1.6rem; margin: 0 0 6px; }
 .auth-modal-sub { color: rgba(30,16,48,0.6); font-size: 0.88rem; margin: 0 0 20px; }
 .auth-modal label { font-size: 0.85rem; font-weight: 600; display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
@@ -320,6 +320,32 @@ ul { margin: 0; padding: 0; list-style: none; }
 }
 .auth-modal input:focus-visible { outline: 2px solid var(--blood-orange); }
 .auth-modal-close { position: absolute; top: 14px; right: 14px; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 4px 0 18px; color: rgba(30,16,48,0.4); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.auth-modal-links { margin: 16px 0 0; text-align: center; font-size: 0.82rem; }
+.auth-modal-links a { color: var(--blood-orange); text-decoration: none; font-weight: 600; }
+.auth-modal-links a:hover { text-decoration: underline; }
+
+/* -------------------------------- Profile page -------------------------------- */
+#view-profile { max-width: 960px; margin: 0 auto; padding: 50px 24px 80px; }
+#view-profile h1 { font-family: var(--font-display); font-size: clamp(2rem, 6vw, 2.8rem); margin-bottom: 24px; }
+.profile-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 22px; align-items: start; }
+@media (max-width: 760px) { .profile-grid { grid-template-columns: 1fr; } }
+.profile-card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-card); }
+.profile-card h3 { margin: 0 0 16px; font-family: var(--font-display); font-size: 1.3rem; }
+.profile-card label { font-size: 0.85rem; font-weight: 600; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.profile-card input {
+  font-family: var(--font-body); font-size: 0.95rem; padding: 11px 13px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--paper);
+}
+.profile-card input:disabled { opacity: 0.55; }
+.profile-card input:focus-visible { outline: 2px solid var(--blood-orange); }
+.profile-divider { height: 1px; background: var(--line); margin: 18px 0; }
+.profile-order { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.profile-order:last-child { border-bottom: none; }
+.profile-order .po-id { font-family: var(--font-mono); font-size: 0.78rem; opacity: 0.55; }
+.profile-order .po-status { font-size: 0.78rem; font-weight: 700; color: var(--blood-orange); }
+.profile-order .po-total { font-family: var(--font-mono); font-weight: 700; }
 
 .terms-box { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
 .terms-box h3 { margin: 0 0 12px; font-family: var(--font-display); font-size: 1.2rem; }
