@@ -50,7 +50,7 @@ export class StorageService {
           `Missing: ${[!url && 'SUPABASE_URL', !serviceRoleKey && 'SUPABASE_SERVICE_ROLE_KEY'].filter(Boolean).join(', ')}. ` +
           'The app will still start; storage-dependent routes will fail until this is fixed.',
       );
-      this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'citrine-media';
+      this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'monastery-media';
       return;
     }
 
@@ -68,7 +68,7 @@ export class StorageService {
         params: { eventsPerSecond: 0 },
       },
     });
-    this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'citrine-media';
+    this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'monastery-media';
     this.logger.log(`Supabase Storage client initialized (bucket: ${this.bucket})`);
   }
 

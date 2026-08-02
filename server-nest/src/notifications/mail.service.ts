@@ -21,7 +21,7 @@ import { Injectable, Logger } from '@nestjs/common';
  *                        Spam more often than a verified custom domain
  *                        would). Once a domain is verified in the Resend
  *                        dashboard, set this to an address on it instead
- *                        (e.g. login@citrinejuice.com).
+ *                        (e.g. login@example-monastery.org).
  */
 @Injectable()
 export class MailService {
@@ -43,7 +43,7 @@ export class MailService {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ from: `Citrine Juice Co. <${from}>`, to: [to], subject, html, text }),
+        body: JSON.stringify({ from: `Monastery Guesthouse <${from}>`, to: [to], subject, html, text }),
       });
 
       if (!res.ok) {
@@ -77,7 +77,7 @@ export class MailService {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:460px;background:#FFFDF9;border-radius:20px;overflow:hidden;box-shadow:0 12px 32px rgba(30,16,48,0.10);">
             <tr>
               <td style="background:#1E1030;padding:28px 32px;">
-                <span style="font-size:22px;font-weight:800;color:#FFFDF9;letter-spacing:0.3px;">🍊 Citrine Juice Co.</span>
+                <span style="font-size:22px;font-weight:800;color:#FFFDF9;letter-spacing:0.3px;">⛪ Monastery Guesthouse</span>
               </td>
             </tr>
             <tr>
@@ -88,7 +88,7 @@ export class MailService {
             <tr>
               <td style="padding:20px 32px;background:#F3EEE4;">
                 <p style="margin:0;font-size:12px;color:#1E1030;opacity:0.55;line-height:1.6;">
-                  You're receiving this because it was requested on Citrine Juice Co. If this wasn't you, no action is needed — nothing changes unless the code above is used.
+                  You're receiving this because it was requested on the Monastery Guesthouse system. If this wasn't you, no action is needed — nothing changes unless the code above is used.
                 </p>
               </td>
             </tr>
@@ -100,18 +100,26 @@ export class MailService {
 </html>`;
   }
 
-  async sendOtpEmail(to: string, code: string): Promise<void> {
+  private static readonly OTP_LABELS: Record<string, string> = {
+    login: 'Your one-time login code',
+    verify_email: 'Verify your email to activate your account',
+    reset_password: 'Reset your password',
+    change_password: 'Confirm your password change',
+  };
+
+  async sendOtpEmail(to: string, code: string, purpose = 'login'): Promise<void> {
+    const label = MailService.OTP_LABELS[purpose] || 'Your verification code';
     const html = this.layout(`
-      <p style="margin:0 0 6px;font-size:15px;color:#1E1030;opacity:0.7;">Your one-time login code</p>
+      <p style="margin:0 0 6px;font-size:15px;color:#1E1030;opacity:0.7;">${label}</p>
       <div style="margin:18px 0 22px;padding:20px;background:#F3EEE4;border-radius:14px;text-align:center;">
         <span style="font-size:38px;font-weight:800;letter-spacing:10px;color:#E1461C;">${code}</span>
       </div>
       <p style="margin:0;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
-        Enter this code on the sign-in screen to continue. It expires in <strong>5 minutes</strong>.
+        Enter this code to continue. It expires in <strong>10 minutes</strong>.
       </p>
     `);
-    const text = `Your Citrine Juice Co. login code is: ${code}\n\nThis code expires in 5 minutes. If you didn't request this, you can ignore this email.`;
-    await this.send(to, `${code} is your Citrine login code`, html, text);
+    const text = `${label}: ${code}\n\nThis code expires in 10 minutes. If you didn't request this, you can ignore this email.`;
+    await this.send(to, `${code} — ${label}`, html, text);
   }
 
   /**
@@ -128,13 +136,84 @@ export class MailService {
       </div>
       <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">Your password was changed</p>
       <p style="margin:0 0 20px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
-        This confirms the password on your Citrine account was successfully updated on <strong>${when}</strong>. You've been signed out everywhere else as a precaution.
+        This confirms the password on your account was successfully updated on <strong>${when}</strong>. You've been signed out everywhere else as a precaution.
       </p>
       <p style="margin:0;font-size:13px;color:#1E1030;opacity:0.6;line-height:1.6;">
         Didn't make this change? Reset your password again immediately from the sign-in screen, or reply to this email.
       </p>
     `);
-    const text = `Your Citrine Juice Co. password was changed on ${when}.\n\nYou've been signed out everywhere else as a precaution. If this wasn't you, reset your password again immediately.`;
-    await this.send(to, 'Your Citrine password was changed', html, text);
+    const text = `Your password was changed on ${when}.\n\nYou've been signed out everywhere else as a precaution. If this wasn't you, reset your password again immediately.`;
+    await this.send(to, 'Your password was changed', html, text);
+  }
+
+  // -------------------------------------------------------------------------
+  // Booking notifications
+  // -------------------------------------------------------------------------
+
+  async sendBookingReceivedEmail(to: string, code: string): Promise<void> {
+    const html = this.layout(`
+      <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">Booking request received</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
+        We received your booking request (reference <strong>${code}</strong>). Our booking team will review it and get back to you shortly.
+      </p>
+    `);
+    await this.send(to, `Booking request received — ${code}`, html, `Your booking request (${code}) was received and is pending review.`);
+  }
+
+  async sendBookingApprovedEmail(to: string, code: string, qrCodeDataUrl?: string): Promise<void> {
+    const qrBlock = qrCodeDataUrl
+      ? `<div style="margin:18px 0;text-align:center;"><img src="${qrCodeDataUrl}" width="180" height="180" alt="Booking QR code" style="border-radius:12px;" /></div>`
+      : '';
+    const html = this.layout(`
+      <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">Your booking is confirmed</p>
+      <p style="margin:0 0 12px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
+        Booking reference: <strong>${code}</strong>
+      </p>
+      ${qrBlock}
+      <p style="margin:0;font-size:13px;color:#1E1030;opacity:0.6;line-height:1.6;">
+        Please present this QR code on arrival to check in.
+      </p>
+    `);
+    await this.send(to, `Booking confirmed — ${code}`, html, `Your booking (${code}) has been approved. Please present your QR code on arrival.`);
+  }
+
+  async sendBookingRejectedEmail(to: string, code: string, reason?: string): Promise<void> {
+    const html = this.layout(`
+      <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">Booking request declined</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
+        Unfortunately your booking request (${code}) could not be accepted.${reason ? ` Reason: ${reason}` : ''}
+      </p>
+    `);
+    await this.send(to, `Booking declined — ${code}`, html, `Your booking request (${code}) was declined.${reason ? ` Reason: ${reason}` : ''}`);
+  }
+
+  async sendBookingReminderEmail(to: string, code: string, hoursBefore: number): Promise<void> {
+    const html = this.layout(`
+      <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">Reminder: your stay is coming up</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
+        This is a reminder that your booking (<strong>${code}</strong>) arrival is in about ${hoursBefore} hours.
+      </p>
+    `);
+    await this.send(to, `Reminder — booking ${code}`, html, `Reminder: your booking (${code}) arrival is in about ${hoursBefore} hours.`);
+  }
+
+  async sendCheckInEmail(to: string, code: string): Promise<void> {
+    const html = this.layout(`
+      <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">You're checked in</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
+        Check-in confirmed for booking <strong>${code}</strong>. We hope you have a blessed stay.
+      </p>
+    `);
+    await this.send(to, `Checked in — ${code}`, html, `Check-in confirmed for booking ${code}.`);
+  }
+
+  async sendStayCompletedEmail(to: string, code: string): Promise<void> {
+    const html = this.layout(`
+      <p style="margin:0 0 6px;font-size:18px;font-weight:700;color:#1E1030;">Thank you for staying with us</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#1E1030;opacity:0.75;line-height:1.6;">
+        Your stay (booking <strong>${code}</strong>) has ended. Thank you, and we hope to welcome you again soon.
+      </p>
+    `);
+    await this.send(to, `Thank you — ${code}`, html, `Your stay (${code}) has ended. Thank you for visiting.`);
   }
 }

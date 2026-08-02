@@ -29,8 +29,9 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
+  @IsOptional()
   @IsString()
-  phone: string;
+  phone?: string;
 
   @IsString()
   @MinLength(8)
@@ -70,4 +71,31 @@ export class ResetPasswordDto {
 export class RefreshTokenDto {
   @IsString()
   refreshToken: string;
+}
+
+export class ResendVerificationDto {
+  @IsEmail()
+  email: string;
+}
+
+export class VerifyEmailDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @Length(6, 6)
+  code: string;
+}
+
+export class ConfirmChangePasswordDto {
+  @IsString()
+  currentPassword: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword: string;
+
+  @IsString()
+  @Length(6, 6)
+  code: string;
 }

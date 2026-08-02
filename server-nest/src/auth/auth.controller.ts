@@ -5,12 +5,15 @@ import { ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import {
+  ConfirmChangePasswordDto,
   ForgotPasswordDto,
   LoginDto,
   RefreshTokenDto,
   RegisterDto,
   RequestOtpDto,
+  ResendVerificationDto,
   ResetPasswordDto,
+  VerifyEmailDto,
   VerifyOtpDto,
 } from './dto/auth.dto';
 
@@ -95,18 +98,27 @@ export class AuthController {
   }
 
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })
-  @Post('driver-login')
-  async driverLogin(
-    @Body() dto: { identifier: string; password: string },
-    @Ip() ip: string,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const result = await this.auth.driverLogin(dto.identifier, dto.password, { ip, userAgent: req.headers['user-agent'] });
-    // No refresh_token cookie — see AuthService.driverLogin for why drivers
-    // only get a single longer-lived access token today.
-    res.cookie('access_token', result.accessToken, { ...COOKIE_OPTS, maxAge: 12 * 60 * 60 * 1000 });
-    return { success: true, driver: result.driver, accessToken: result.accessToken };
+  @Post('verify-email')
+  async verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.auth.verifyEmail(dto.email, dto.code);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 600_000 } }) // 5/10min — resend abuse guard
+  @Post('resend-verification')
+  async resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.auth.resendVerification(dto.email);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password/request')
+  async requestChangePassword(@Req() req: Request & { user: { userId: string } }) {
+    return this.auth.requestChangePasswordOtp(req.user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password/confirm')
+  async confirmChangePassword(@Body() dto: ConfirmChangePasswordDto, @Req() req: Request & { user: { userId: string } }) {
+    return this.auth.confirmChangePassword(req.user.userId, dto.currentPassword, dto.newPassword, dto.code);
   }
 
   @Throttle({ default: { limit: 10, ttl: 3600_000 } })

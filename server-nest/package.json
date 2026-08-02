@@ -1,7 +1,7 @@
 {
-  "name": "citrine-backend-nest",
-  "version": "3.0.0",
-  "description": "Citrine Juice Co. — NestJS backend (Postgres/Prisma/Supabase)",
+  "name": "monastery-guesthouse-backend",
+  "version": "1.0.0",
+  "description": "Monastery Guesthouse — NestJS backend (Postgres/Prisma/Supabase)",
   "private": true,
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
@@ -25,9 +25,11 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.4.0",
+    "@nestjs/schedule": "^4.1.1",
     "@nestjs/swagger": "^7.4.0",
     "@nestjs/terminus": "^10.2.3",
     "@nestjs/throttler": "^6.2.1",
+    "qrcode": "^1.5.4",
     "@prisma/client": "^5.20.0",
     "bcrypt": "^5.1.1",
     "cache-manager": "^5.7.6",
@@ -64,6 +66,7 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^20.16.5",
     "@types/passport-jwt": "^4.0.1",
+    "@types/qrcode": "^1.5.5",
     "@types/ws": "^8.5.12",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5"
