@@ -1,65 +1,43 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class RoomsService {
   constructor(private prisma: PrismaService) {}
 
-  list(activeOnly = false) {
+  // Public: guests need to see what categories exist (and their capacity)
+  // to understand what they're requesting — this deliberately doesn't hide
+  // capacity numbers, since "how many beds" is exactly what a guest needs
+  // to gauge whether a group will fit.
+  list(includeInactive = false) {
     return this.prisma.room.findMany({
-      where: activeOnly ? { isActive: true } : {},
-      orderBy: { number: 'asc' },
+      where: includeInactive ? {} : { isActive: true },
+      orderBy: [{ type: 'asc' }, { gender: 'asc' }, { name: 'asc' }],
     });
   }
 
-  async get(id: string) {
+  async findOne(id: string) {
     const room = await this.prisma.room.findUnique({ where: { id } });
     if (!room) throw new NotFoundException('Room not found');
     return room;
   }
 
-  async create(data: { number: string; capacity: number; type?: string; notes?: string }) {
-    if (data.capacity < 1) throw new BadRequestException('Room capacity must be at least 1 bed');
-    const existing = await this.prisma.room.findUnique({ where: { number: data.number } });
-    if (existing) throw new BadRequestException(`Room ${data.number} already exists`);
+  // SUPERVISOR-only in the controller — this is deliberately the ONE place
+  // bed capacity can be set, per the requirement that only a supervisor
+  // configures how many beds a room has.
+  create(data: { name: string; type: 'PRIVATE' | 'SHARED'; gender: 'MALE' | 'FEMALE' | 'ANY'; capacity: number; notes?: string }) {
     return this.prisma.room.create({ data });
   }
 
-  async update(id: string, data: { number?: string; capacity?: number; type?: string; notes?: string; isActive?: boolean }) {
-    await this.get(id);
-    if (data.capacity !== undefined && data.capacity < 1) throw new BadRequestException('Room capacity must be at least 1 bed');
+  async update(id: string, data: Partial<{ name: string; type: 'PRIVATE' | 'SHARED'; gender: 'MALE' | 'FEMALE' | 'ANY'; capacity: number; notes: string; isActive: boolean }>) {
+    await this.findOne(id);
     return this.prisma.room.update({ where: { id }, data });
   }
 
   async remove(id: string) {
-    await this.get(id);
-    const activeBookings = await this.prisma.bookingRoom.count({
-      where: { roomId: id, booking: { status: { in: ['pending', 'approved', 'checked_in'] } } },
-    });
-    if (activeBookings > 0) {
-      throw new BadRequestException('Cannot delete a room with active or pending bookings — deactivate it instead');
-    }
-    return this.prisma.room.delete({ where: { id } });
-  }
-
-  /**
-   * Beds already committed in `roomId` for any date range that overlaps
-   * [arrivalDate, departureDate). Two ranges overlap unless one ends
-   * before the other starts.
-   */
-  async bedsCommitted(roomId: string, arrivalDate: Date, departureDate: Date, excludeBookingId?: string): Promise<number> {
-    const rows = await this.prisma.bookingRoom.findMany({
-      where: {
-        roomId,
-        booking: {
-          status: { in: ['pending', 'approved', 'checked_in'] },
-          ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
-          arrivalDate: { lt: departureDate },
-          departureDate: { gt: arrivalDate },
-        },
-      },
-      select: { bedsAllocated: true },
-    });
-    return rows.reduce((sum, r) => sum + r.bedsAllocated, 0);
+    await this.findOne(id);
+    // Soft-delete (deactivate) rather than hard delete — existing booking
+    // requests reference this room and must keep working/reporting correctly.
+    return this.prisma.room.update({ where: { id }, data: { isActive: false } });
   }
 }

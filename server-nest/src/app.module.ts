@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
@@ -8,12 +7,22 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
-import { RoomsModule } from './rooms/rooms.module';
-import { BookingsModule } from './bookings/bookings.module';
-import { NewsModule } from './news/news.module';
+import { ProductsModule } from './products/products.module';
+import { CategoriesModule } from './categories/categories.module';
+import { OrdersModule } from './orders/orders.module';
+import { CouponsModule } from './coupons/coupons.module';
+import { InvoicesModule } from './invoices/invoices.module';
+import { DriversModule } from './drivers/drivers.module';
+import { CartModule } from './cart/cart.module';
+import { WishlistModule } from './wishlist/wishlist.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { StorageModule } from './storage/storage.module';
+import { BannersModule } from './banners/banners.module';
+import { LegacyCompatModule } from './legacy-compat/legacy-compat.module';
+import { RoomsModule } from './rooms/rooms.module';
+import { BookingRequestsModule } from './booking-requests/booking-requests.module';
+import { NewsModule } from './news/news.module';
 
 @Module({
   imports: [
@@ -24,20 +33,29 @@ import { StorageModule } from './storage/storage.module';
         redact: ['req.headers.authorization', 'req.headers.cookie'],
       },
     }),
-    // General ceiling; specific routes (OTP, booking creation) tighten this
+    // General ceiling; specific routes (OTP, order creation) tighten this
     // further with their own @Throttle() decorators.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
-    ScheduleModule.forRoot(), // powers BookingsSchedulerService's @Cron jobs
     PrismaModule,
     HealthModule,
     AuditModule,
     AuthModule,
     UsersModule,
-    RoomsModule,
-    BookingsModule,
-    NewsModule,
+    ProductsModule,
+    CategoriesModule,
+    OrdersModule,
+    CouponsModule,
+    InvoicesModule,
+    DriversModule,
+    CartModule,
+    WishlistModule,
     NotificationsModule,
     StorageModule,
+    BannersModule,
+    LegacyCompatModule,
+    RoomsModule,
+    BookingRequestsModule,
+    NewsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

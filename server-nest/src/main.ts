@@ -147,9 +147,9 @@ async function bootstrap() {
 
   if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === 'true') {
     const config = new DocumentBuilder()
-      .setTitle('Monastery Guesthouse API')
-      .setDescription('Auth (OTP), rooms, bookings, news, RBAC')
-      .setVersion('1.0')
+      .setTitle('Citrine Juice Co. API')
+      .setDescription('Products, orders, coupons, drivers, auth')
+      .setVersion('3.0')
       .addBearerAuth()
       .build();
     const document = SwaggerModule.createDocument(app, config);
@@ -161,7 +161,7 @@ async function bootstrap() {
   // process to listen on all interfaces, not just localhost/loopback.
   await app.listen(port, '0.0.0.0');
   // eslint-disable-next-line no-console
-  console.log(`🚀 Monastery Guesthouse API running on port ${port}`);
+  console.log(`🚀 Citrine API running on port ${port}`);
 }
 
 bootstrap();

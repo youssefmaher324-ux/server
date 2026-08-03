@@ -20,8 +20,8 @@ export class UsersController {
     return this.users.updateProfile(req.user.userId, body);
   }
 
-  @Get('bookings')
-  getBookings(@Req() req: any, @Query('page') page?: string) {
-    return this.users.getBookings(req.user.userId, page ? Number(page) : 1);
+  @Get('orders')
+  getOrders(@Req() req: any, @Query('page') page?: string) {
+    return this.users.getOrders(req.user.userId, page ? Number(page) : 1);
   }
 }

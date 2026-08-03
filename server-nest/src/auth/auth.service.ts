@@ -30,7 +30,7 @@ export class AuthService {
 
   // ---- OTP ---------------------------------------------------------------
 
-  async requestOtp(identifier: string, purpose: 'login' | 'verify_email' | 'reset_password' | 'change_password' = 'login') {
+  async requestOtp(identifier: string, purpose: 'login' | 'verify_email' | 'reset_password' = 'login') {
     const isEmail = identifier.includes('@');
     // SMS delivery isn't wired up yet (no provider configured) — only email
     // identifiers can actually receive a code right now. Reject phone
@@ -42,7 +42,7 @@ export class AuthService {
 
     const code = randomOtp();
     const codeHash = await bcrypt.hash(code, 10);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     const user = await this.prisma.user.findFirst({
       where: isEmail ? { email: identifier } : { phone: identifier },
@@ -59,15 +59,15 @@ export class AuthService {
       // eslint-disable-next-line no-console
       console.log(`[OTP:${purpose}] ${identifier} -> ${code}`);
     }
-    await this.mail.sendOtpEmail(identifier, code, purpose);
+    await this.mail.sendOtpEmail(identifier, code);
 
     return { success: true };
   }
 
-  async verifyOtp(identifier: string, code: string, name?: string, rememberMe = false, meta?: { ip?: string; userAgent?: string }) {
+  async verifyOtp(identifier: string, code: string, name?: string, rememberMe = false, meta?: { ip?: string; userAgent?: string }, purpose: 'login' | 'verify_email' = 'login') {
     const isEmail = identifier.includes('@');
     const candidate = await this.prisma.otpCode.findFirst({
-      where: { identifier, purpose: 'login', consumedAt: null, expiresAt: { gt: new Date() } },
+      where: { identifier, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -88,99 +88,34 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: { [isEmail ? 'email' : 'phone']: identifier, name, isEmailVerified: isEmail },
       });
-    } else if (name && name !== user.name) {
-      user = await this.prisma.user.update({ where: { id: user.id }, data: { name } });
+    } else {
+      const updates: { name?: string; isEmailVerified?: boolean } = {};
+      if (name && name !== user.name) updates.name = name;
+      // Signing up with a password sends a 'verify_email' code separately
+      // from login's 'login' code — this is the one place that actually
+      // flips isEmailVerified on, once that code is confirmed.
+      if (purpose === 'verify_email' && !user.isEmailVerified) updates.isEmailVerified = true;
+      if (Object.keys(updates).length) user = await this.prisma.user.update({ where: { id: user.id }, data: updates });
     }
 
     const tokens = await this.issueTokenPair(user.id, user.roleId ?? undefined, user.email ?? undefined, rememberMe, meta);
-    await this.audit.log({ userId: user.id, action: 'auth.login_otp', ip: meta?.ip, userAgent: meta?.userAgent });
+    await this.audit.log({ userId: user.id, action: purpose === 'verify_email' ? 'auth.verify_email' : 'auth.login_otp', ip: meta?.ip, userAgent: meta?.userAgent });
 
     return { user: { id: user.id, name: user.name, identifier }, ...tokens };
   }
 
   // ---- Password login ------------------------------------------------------
 
-  async register(name: string, email: string, phone: string | undefined, password: string) {
-    const existing = await this.prisma.user.findFirst({ where: { OR: [{ email }, ...(phone ? [{ phone }] : [])] } });
+  async register(name: string, email: string, phone: string, password: string, extra?: { churchName?: string; age?: number }) {
+    const existing = await this.prisma.user.findFirst({ where: { OR: [{ email }, { phone }] } });
     if (existing) throw new BadRequestException('An account with this email or phone already exists');
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await this.prisma.user.create({ data: { name, email, phone, passwordHash } });
+    const user = await this.prisma.user.create({
+      data: { name, email, phone, passwordHash, churchName: extra?.churchName, age: extra?.age },
+    });
     await this.requestOtp(email, 'verify_email');
     return { success: true, userId: user.id };
-  }
-
-  /** Confirms the 6-digit code sent on signup and activates the account. */
-  async verifyEmail(email: string, code: string) {
-    const candidate = await this.prisma.otpCode.findFirst({
-      where: { identifier: email, purpose: 'verify_email', consumedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!candidate || candidate.attempts >= 5) throw new BadRequestException('Invalid or expired verification code');
-
-    const ok = await bcrypt.compare(code, candidate.codeHash);
-    if (!ok) {
-      await this.prisma.otpCode.update({ where: { id: candidate.id }, data: { attempts: { increment: 1 } } });
-      throw new BadRequestException('Invalid or expired verification code');
-    }
-
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) throw new BadRequestException('Invalid or expired verification code');
-
-    await this.prisma.$transaction([
-      this.prisma.otpCode.update({ where: { id: candidate.id }, data: { consumedAt: new Date() } }),
-      this.prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } }),
-    ]);
-    await this.audit.log({ userId: user.id, action: 'auth.verify_email' });
-    return { success: true };
-  }
-
-  /** Resend the signup OTP. Silently no-ops if the account is already verified or doesn't exist, to avoid leaking account existence. */
-  async resendVerification(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (user && !user.isEmailVerified) {
-      await this.requestOtp(email, 'verify_email');
-    }
-    return { success: true };
-  }
-
-  /** Step 1 of in-account password change: send an OTP to the account's own email. */
-  async requestChangePasswordOtp(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.email) throw new BadRequestException('No email on file for this account');
-    await this.requestOtp(user.email, 'change_password');
-    return { success: true };
-  }
-
-  /** Step 2: current password + new password + the OTP just emailed, all required together. */
-  async confirmChangePassword(userId: string, currentPassword: string, newPassword: string, code: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.email || !user.passwordHash) throw new BadRequestException('Account has no password set');
-
-    const currentOk = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!currentOk) throw new BadRequestException('Current password is incorrect');
-
-    const candidate = await this.prisma.otpCode.findFirst({
-      where: { identifier: user.email, purpose: 'change_password', consumedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!candidate || candidate.attempts >= 5) throw new BadRequestException('Invalid or expired verification code');
-    const codeOk = await bcrypt.compare(code, candidate.codeHash);
-    if (!codeOk) {
-      await this.prisma.otpCode.update({ where: { id: candidate.id }, data: { attempts: { increment: 1 } } });
-      throw new BadRequestException('Invalid or expired verification code');
-    }
-
-    const passwordHash = await bcrypt.hash(newPassword, 12);
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
-      this.prisma.otpCode.update({ where: { id: candidate.id }, data: { consumedAt: new Date() } }),
-      this.prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
-      this.prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
-    ]);
-    await this.mail.sendPasswordChangedEmail(user.email);
-    await this.audit.log({ userId: user.id, action: 'auth.change_password' });
-    return { success: true };
   }
 
   async login(email: string, password: string, rememberMe = false, meta?: { ip?: string; userAgent?: string }) {
@@ -190,11 +125,36 @@ export class AuthService {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
     if (!user.isActive) throw new UnauthorizedException('Account disabled');
-    if (!user.isEmailVerified) throw new UnauthorizedException('Verify your email first.');
 
     const tokens = await this.issueTokenPair(user.id, user.roleId ?? undefined, user.email ?? undefined, rememberMe, meta);
     await this.audit.log({ userId: user.id, action: 'auth.login_password', ip: meta?.ip, userAgent: meta?.userAgent });
     return { user: { id: user.id, name: user.name, email: user.email }, ...tokens };
+  }
+
+  /**
+   * Driver login (phone/email + password). Drivers are a separate `Driver`
+   * table, not wired into `refresh_tokens`/`sessions` (those FK to `User`).
+   * Rather than migrate the schema to give drivers first-class refresh-token
+   * rotation, this issues one longer-lived (12h) access token — a driver
+   * logs in once per shift and re-authenticates the next one. If drivers
+   * need silent long-lived sessions (multi-day app installs) later, that's
+   * the point to add a `driver_refresh_tokens` table mirroring the
+   * user one, not to bend this table to fit.
+   */
+  async driverLogin(identifier: string, password: string, meta?: { ip?: string; userAgent?: string }) {
+    const isEmail = identifier.includes('@');
+    const driver = await this.prisma.driver.findFirst({ where: isEmail ? { email: identifier } : { phone: identifier } });
+    if (!driver?.passwordHash) throw new UnauthorizedException('Invalid credentials');
+
+    const ok = await bcrypt.compare(password, driver.passwordHash);
+    if (!ok) throw new UnauthorizedException('Invalid credentials');
+
+    const accessToken = this.jwt.sign(
+      { sub: driver.id, role: 'driver' },
+      { secret: getJwtAccessSecret(), expiresIn: '12h' },
+    );
+    await this.audit.log({ action: 'auth.driver_login', entityType: 'driver', entityId: driver.id, ip: meta?.ip, userAgent: meta?.userAgent });
+    return { driver: { id: driver.id, name: driver.name }, accessToken };
   }
 
   async forgotPassword(email: string) {

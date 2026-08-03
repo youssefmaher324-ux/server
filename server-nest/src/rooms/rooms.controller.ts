@@ -1,59 +1,48 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { AuditService } from '../audit/audit.service';
 import { RoomsService } from './rooms.service';
 
 @ApiTags('rooms')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('rooms')
 export class RoomsController {
-  constructor(
-    private rooms: RoomsService,
-    private audit: AuditService,
-  ) {}
+  constructor(private rooms: RoomsService) {}
 
-  // Super Admin and Booking Manager can both view the room list (the
-  // manager needs it to reassign bookings); only Super Admin can write.
-  @Roles('super_admin', 'booking_manager')
+  // Public — a guest browsing the site needs to see room categories and
+  // capacities before they even sign in, to know what to ask for.
   @Get()
-  list(@Query('activeOnly') activeOnly?: string) {
-    return this.rooms.list(activeOnly === 'true');
+  list(@Query('includeInactive') includeInactive?: string) {
+    return this.rooms.list(includeInactive === 'true');
   }
 
-  @Roles('super_admin', 'booking_manager')
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.rooms.get(id);
+  findOne(@Param('id') id: string) {
+    return this.rooms.findOne(id);
   }
 
-  @Roles('super_admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles('supervisor', 'super_admin')
   @Post()
-  async create(@Body() body: { number: string; capacity: number; type?: string; notes?: string }) {
-    const room = await this.rooms.create(body);
-    await this.audit.log({ action: 'room.create', entityType: 'room', entityId: room.id });
-    return room;
+  create(@Body() body: { name: string; type: 'PRIVATE' | 'SHARED'; gender: 'MALE' | 'FEMALE' | 'ANY'; capacity: number; notes?: string }) {
+    return this.rooms.create(body);
   }
 
-  @Roles('super_admin')
-  @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() body: { number?: string; capacity?: number; type?: string; notes?: string; isActive?: boolean },
-  ) {
-    const room = await this.rooms.update(id, body);
-    await this.audit.log({ action: 'room.update', entityType: 'room', entityId: id });
-    return room;
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles('supervisor', 'super_admin')
+  @Put(':id')
+  update(@Param('id') id: string, @Body() body: any) {
+    return this.rooms.update(id, body);
   }
 
-  @Roles('super_admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles('supervisor', 'super_admin')
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    await this.rooms.remove(id);
-    await this.audit.log({ action: 'room.delete', entityType: 'room', entityId: id });
-    return { success: true };
+  remove(@Param('id') id: string) {
+    return this.rooms.remove(id);
   }
 }

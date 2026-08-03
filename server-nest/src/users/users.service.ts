@@ -9,23 +9,23 @@ export class UsersService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { role: true },
+      include: { addresses: true, role: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    const { passwordHash, ...safe } = user;
+    const { passwordHash, otpCode, otpExpires, ...safe } = user;
     return safe;
   }
 
   async updateProfile(userId: string, data: { name?: string; phone?: string }) {
     const user = await this.prisma.user.update({ where: { id: userId }, data });
-    const { passwordHash, ...safe } = user;
+    const { passwordHash, otpCode, otpExpires, ...safe } = user;
     return safe;
   }
 
-  async getBookings(userId: string, page = 1, pageSize = 20) {
-    return this.prisma.booking.findMany({
+  async getOrders(userId: string, page = 1, pageSize = 20) {
+    return this.prisma.order.findMany({
       where: { userId },
-      include: { bookingRooms: { include: { room: true } } },
+      include: { items: true },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -47,14 +47,14 @@ export class UsersService {
       this.prisma.user.count({ where }),
     ]);
     return {
-      items: items.map(({ passwordHash, ...safe }) => safe),
+      items: items.map(({ passwordHash, otpCode, otpExpires, ...safe }) => safe),
       total,
       page,
       pageSize,
     };
   }
 
-  /** Admin-created staff/user account with an email+password login (skips the signup OTP step). */
+  /** Admin-created staff/customer account with an email+password login (not the OTP flow). */
   async createByAdmin(data: { name: string; email: string; phone?: string; password: string; roleName: string }) {
     const existing = await this.prisma.user.findFirst({ where: { OR: [{ email: data.email }, ...(data.phone ? [{ phone: data.phone }] : [])] } });
     if (existing) throw new BadRequestException('A user with this email or phone already exists');
@@ -86,11 +86,11 @@ export class UsersService {
       roleId = role.id;
     }
     const user = await this.prisma.user.update({ where: { id: userId }, data: { ...rest, ...(roleId ? { roleId } : {}) } });
-    const { passwordHash, ...safe } = user;
+    const { passwordHash, otpCode, otpExpires, ...safe } = user;
     return safe;
   }
 
-  /** Soft delete — deactivates rather than removing, so past bookings keep their user reference. */
+  /** Soft delete — deactivates rather than removing, so past orders keep their user reference. */
   async deactivate(userId: string) {
     const user = await this.prisma.user.update({ where: { id: userId }, data: { isActive: false } });
     // Revoking every session/refresh token means a deactivated account is
@@ -102,3 +102,4 @@ export class UsersService {
     return { success: true, id: user.id };
   }
 }
+

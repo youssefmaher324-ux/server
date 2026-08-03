@@ -24,7 +24,7 @@ export class HealthController {
   liveness() {
     return {
       status: 'ok',
-      service: 'monastery-guesthouse-backend',
+      service: 'citrine-backend',
       // Bump this string on every meaningful backend change. Lets anyone
       // confirm from a plain browser tab — no logs, no GitHub, no Railway
       // dashboard needed — whether a given deploy is actually the one

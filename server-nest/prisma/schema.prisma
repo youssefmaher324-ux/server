@@ -1,13 +1,8 @@
-// Monastery Management System — Prisma schema
-// Source of truth for PostgreSQL (Supabase).
-//
-// This schema replaces the previous e-commerce (Citrine Juice Co.) schema.
-// The RBAC / auth / session / OTP / notification / audit infrastructure was
-// kept as-is (it's domain-agnostic and every new module builds on it).
-// The catalog/cart/order/driver/coupon/invoice models were removed and
-// replaced with Room / Booking / News models that match the guesthouse
-// booking domain. No table that survived was renamed at the column level
-// where existing code depended on it (e.g. User.email/passwordHash).
+// Citrine Juice Co. — Prisma schema
+// Source of truth for PostgreSQL (Supabase). Generated to replace schema.sql.
+// Existing tables (users, products, banners, drivers, orders) are preserved
+// and extended in place — no renames of columns already used by the
+// customer/employee/admin/delivery frontends.
 
 generator client {
   provider      = "prisma-client-js"
@@ -32,19 +27,19 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model Role {
-  id          String           @id @default(uuid())
-  name        String           @unique // super_admin | booking_manager | user
+  id          String       @id @default(uuid())
+  name        String       @unique // e.g. customer, employee, admin, driver, super_admin
   description String?
   permissions RolePermission[]
   users       User[]
-  createdAt   DateTime         @default(now()) @map("created_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
 
   @@map("roles")
 }
 
 model Permission {
-  id          String           @id @default(uuid())
-  key         String           @unique // e.g. rooms.write, bookings.manage
+  id          String            @id @default(uuid())
+  key         String            @unique // e.g. orders.cancel, products.write
   description String?
   roles       RolePermission[]
 
@@ -76,15 +71,30 @@ model User {
   isEmailVerified Boolean   @default(false) @map("is_email_verified")
   isActive        Boolean   @default(true) @map("is_active")
 
+  // Monastery guest-house fields (in addition to the juice-shop customer
+  // fields above — same User table serves both apps).
+  churchName      String?   @map("church_name") // اسم الكنيسة
+  age             Int?
+
+  bookingRequests    BookingRequest[] @relation("GuestBookings")
+  reviewedBookings   BookingRequest[] @relation("ReviewedBookings")
+  authoredNews       News[]           @relation("NewsAuthor")
+
+  // legacy OTP columns kept for backward compatibility with existing
+  // /auth/request-otp flow; superseded by the OtpCode table for new code.
+  otpCode         String?   @map("otp_code")
+  otpExpires      DateTime? @map("otp_expires")
+
+  addresses       Address[]
+  orders          Order[]
   sessions        Session[]
   refreshTokens   RefreshToken[]
   otpCodes        OtpCode[]
+  rewardPoints    RewardPoint[]
+  wishlist        WishlistItem[]
+  cartItems       CartItem[]
   notifications   Notification[]
   auditLogs       AuditLog[]
-
-  bookings        Booking[]      @relation("BookingUser")
-  managedBookings Booking[]      @relation("BookingManager")
-  newsPosts       NewsPost[]
 
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -92,186 +102,326 @@ model User {
   @@map("users")
 }
 
+model Address {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String?  // "Home", "Work"
+  line1     String
+  line2     String?
+  city      String?
+  branchId  String?  @map("branch_id")
+  branch    Branch?  @relation(fields: [branchId], references: [id])
+  lat       Float?
+  lng       Float?
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("addresses")
+}
+
 model Session {
-  id           String    @id @default(uuid())
-  userId       String    @map("user_id")
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deviceInfo   String?   @map("device_info")
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceInfo   String?  @map("device_info")
   ip           String?
-  rememberMe   Boolean   @default(false) @map("remember_me")
-  expiresAt    DateTime  @map("expires_at")
+  rememberMe   Boolean  @default(false) @map("remember_me")
+  expiresAt    DateTime @map("expires_at")
   revokedAt    DateTime? @map("revoked_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("sessions")
 }
 
 model RefreshToken {
-  id          String    @id @default(uuid())
-  userId      String    @map("user_id")
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash   String    @unique @map("token_hash") // never store raw token
-  deviceInfo  String?   @map("device_info")
-  expiresAt   DateTime  @map("expires_at")
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique @map("token_hash") // never store raw token
+  deviceInfo  String?  @map("device_info")
+  expiresAt   DateTime @map("expires_at")
   revokedAt   DateTime? @map("revoked_at")
-  replacedBy  String?   @map("replaced_by")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  replacedBy  String?  @map("replaced_by")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("refresh_tokens")
 }
 
 model OtpCode {
-  id         String    @id @default(uuid())
-  userId     String?   @map("user_id")
-  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identifier String    // email (phone/SMS not wired up)
-  codeHash   String    @map("code_hash") // hashed, never store raw OTP
-  purpose    String    // verify_email | login | reset_password | change_password
-  expiresAt  DateTime  @map("expires_at")
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifier String  // phone or email, in case user doesn't exist yet
+  codeHash  String   @map("code_hash") // hashed, never store raw OTP
+  purpose   String   // login | verify_email | reset_password
+  expiresAt DateTime @map("expires_at")
   consumedAt DateTime? @map("consumed_at")
-  attempts   Int       @default(0)
-  createdAt  DateTime  @default(now()) @map("created_at")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([identifier, purpose])
   @@map("otp_codes")
 }
 
 // ---------------------------------------------------------------------------
-// Rooms — managed exclusively by Super Admin. No hardcoded/static rooms;
-// every room is a real row created through the admin UI.
+// Catalog
 // ---------------------------------------------------------------------------
 
-model Room {
-  id           String        @id @default(uuid())
-  number       String        @unique @map("number") // e.g. "101"
-  type         String?       // free-text label set by Super Admin, e.g. "family", "dorm"
-  capacity     Int           @map("capacity") // total beds in the room
-  notes        String?
-  isActive     Boolean       @default(true) @map("is_active")
-  bookingRooms BookingRoom[]
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
-
-  @@map("rooms")
-}
-
-// ---------------------------------------------------------------------------
-// Bookings — three types: individual | full_room | retreat
-// ---------------------------------------------------------------------------
-
-model Booking {
-  id                 String        @id @default(uuid())
-  code               String?       @unique // e.g. MON-2026-000125, assigned on approval
-  type               String        // individual | full_room | retreat
-  userId             String?       @map("user_id")
-  user               User?         @relation("BookingUser", fields: [userId], references: [id])
-
-  gender             String?       // male | female — required for individual & retreat
-  churchName         String?       @map("church_name")
-  contactName        String?       @map("contact_name") // group leader / responsible person
-  phone              String
-  address            String?
-  governorate        String?
-  notes              String?
-
-  familySize         Int?          @map("family_size")  // full_room bookings
-  groupSize          Int?          @map("group_size")   // retreat bookings
-  roomsNeeded        Int?          @map("rooms_needed")  // computed for retreat bookings
-
-  arrivalDate        DateTime      @map("arrival_date")
-  departureDate      DateTime      @map("departure_date")
-
-  status             String        @default("pending") // pending|approved|rejected|checked_in|completed|cancelled
-  rejectionReason    String?       @map("rejection_reason")
-
-  bookingRooms       BookingRoom[]
-
-  managedById        String?       @map("managed_by_id")
-  managedBy          User?         @relation("BookingManager", fields: [managedById], references: [id])
-  approvedAt         DateTime?     @map("approved_at")
-
-  qrCodeUrl          String?       @map("qr_code_url")
-
-  checkedInAt        DateTime?     @map("checked_in_at")
-  checkedOutAt       DateTime?     @map("checked_out_at")
-
-  reminder24hSentAt  DateTime?     @map("reminder_24h_sent_at")
-  reminder2hSentAt   DateTime?     @map("reminder_2h_sent_at")
-
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
-
-  @@index([status])
-  @@index([arrivalDate, departureDate])
-  @@map("bookings")
-}
-
-// Join table: which room(s) a booking occupies, and how many beds it uses
-// in each one. A full_room booking usually has one row; a retreat booking
-// may span several rooms.
-model BookingRoom {
-  id            String   @id @default(uuid())
-  bookingId     String   @map("booking_id")
-  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  roomId        String   @map("room_id")
-  room          Room     @relation(fields: [roomId], references: [id])
-  bedsAllocated Int      @map("beds_allocated")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  @@unique([bookingId, roomId])
-  @@index([roomId])
-  @@map("booking_rooms")
-}
-
-// ---------------------------------------------------------------------------
-// News — Super Admin only
-// ---------------------------------------------------------------------------
-
-model NewsPost {
-  id        String      @id @default(uuid())
-  title     String
-  body      String?
-  category  String      @default("news") // news|mass_schedule|conference|meeting|event
-  isPinned  Boolean     @default(false) @map("is_pinned")
-  isHidden  Boolean     @default(false) @map("is_hidden")
-  authorId  String?     @map("author_id")
-  author    User?       @relation(fields: [authorId], references: [id])
-  media     NewsMedia[]
-  createdAt DateTime    @default(now()) @map("created_at")
-  updatedAt DateTime    @updatedAt @map("updated_at")
-
-  @@map("news_posts")
-}
-
-model NewsMedia {
-  id        String   @id @default(uuid())
-  newsId    String   @map("news_id")
-  news      NewsPost @relation(fields: [newsId], references: [id], onDelete: Cascade)
-  url       String
-  type      String   // image | file
-  fileName  String?  @map("file_name")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("news_media")
-}
-
-// ---------------------------------------------------------------------------
-// Notifications, settings, audit
-// ---------------------------------------------------------------------------
-
-model Notification {
+model Category {
   id        String    @id @default(uuid())
-  userId    String?   @map("user_id")
-  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String
-  body      String?
-  channel   String    @default("in_app") // in_app|email|sms|push
-  readAt    DateTime? @map("read_at")
+  name      String
+  nameAr    String?   @map("name_ar")
+  slug      String    @unique
+  sortOrder Int       @default(0) @map("sort_order")
+  products  Product[]
   createdAt DateTime  @default(now()) @map("created_at")
 
+  @@map("categories")
+}
+
+model Product {
+  id          String       @id @default(uuid()) // legacy VARCHAR ids migrated as-is
+  name        String
+  nameAr      String?      @map("name_ar")
+  description String?
+  price       Decimal      @db.Decimal(10, 2)
+  categoryId  String?      @map("category_id")
+  category    Category?    @relation(fields: [categoryId], references: [id])
+  imageUrl    String?      @map("image_url")
+  available   Boolean      @default(true)
+  inventory   Inventory?
+  orderItems  OrderItem[]
+  wishlistedBy WishlistItem[]
+  cartItems   CartItem[]
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("products")
+}
+
+model Inventory {
+  id          String   @id @default(uuid())
+  productId   String   @unique @map("product_id")
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(0)
+  lowStockAt  Int      @default(5) @map("low_stock_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("inventory")
+}
+
+model Branch {
+  id        String    @id @default(uuid())
+  name      String
+  addressLine String? @map("address_line")
+  isActive  Boolean   @default(true) @map("is_active")
+  addresses Address[]
+  orders    Order[]
+  drivers   Driver[]
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("branches")
+}
+
+// ---------------------------------------------------------------------------
+// Cart / Wishlist
+// ---------------------------------------------------------------------------
+
+model CartItem {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, productId])
+  @@map("cart_items")
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, productId])
+  @@map("wishlist_items")
+}
+
+// ---------------------------------------------------------------------------
+// Orders
+// ---------------------------------------------------------------------------
+
+model Order {
+  id                String      @id @default(uuid())
+  userId            String?     @map("user_id")
+  user              User?       @relation(fields: [userId], references: [id])
+  customerName      String      @map("customer_name")
+  customerPhone     String      @map("customer_phone")
+  customerEmail     String?     @map("customer_email")
+  branchId          String?     @map("branch_id")
+  branch            Branch?     @relation(fields: [branchId], references: [id])
+  items             OrderItem[]
+  subtotal          Decimal     @db.Decimal(10, 2)
+  discountTotal      Decimal    @default(0) @db.Decimal(10, 2) @map("discount_total")
+  total             Decimal     @db.Decimal(10, 2)
+  couponId          String?     @map("coupon_id")
+  coupon            Coupon?     @relation(fields: [couponId], references: [id])
+  status            String      @default("pending") // pending|confirmed|preparing|out_for_delivery|delivered|cancelled
+  driverId          String?     @map("driver_id")
+  driver            Driver?     @relation(fields: [driverId], references: [id])
+  verificationCode  String      @map("verification_code")
+  notes             String?
+  cancellationDeadline DateTime? @map("cancellation_deadline") // createdAt + 5 minutes
+  cancelledAt       DateTime?   @map("cancelled_at")
+  invoice           Invoice?
+  payment           Payment?
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  @@index([customerPhone])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String   @map("order_id")
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String   @map("product_id")
+  product    Product  @relation(fields: [productId], references: [id])
+  nameSnapshot String @map("name_snapshot") // preserve name at time of order
+  unitPrice  Decimal  @db.Decimal(10, 2) @map("unit_price")
+  quantity   Int
+  lineTotal  Decimal  @db.Decimal(10, 2) @map("line_total")
+
+  @@map("order_items")
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  orderId       String   @unique @map("order_id")
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount        Decimal  @db.Decimal(10, 2)
+  method        String   // cash | card | wallet
+  status        String   @default("pending") // pending | paid | failed | refunded
+  transactionRef String? @map("transaction_ref")
+  paidAt        DateTime? @map("paid_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("payments")
+}
+
+model Coupon {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  type          String   // percentage | fixed
+  value         Decimal  @db.Decimal(10, 2)
+  minOrderValue Decimal? @db.Decimal(10, 2) @map("min_order_value")
+  maxUses       Int?     @map("max_uses")
+  usedCount     Int      @default(0) @map("used_count")
+  activeFrom    DateTime? @map("active_from")
+  activeUntil   DateTime? @map("active_until")
+  isActive      Boolean  @default(true) @map("is_active")
+  orders        Order[]
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("coupons")
+}
+
+model Invoice {
+  id          String   @id @default(uuid())
+  orderId     String   @unique @map("order_id")
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  number      String   @unique
+  pdfUrl      String?  @map("pdf_url") // Supabase Storage object path
+  issuedAt    DateTime @default(now()) @map("issued_at")
+
+  @@map("invoices")
+}
+
+// ---------------------------------------------------------------------------
+// Drivers
+// ---------------------------------------------------------------------------
+
+model Driver {
+  id                 String           @id @default(uuid())
+  name               String
+  phone              String?          @unique
+  email              String?          @unique
+  passwordHash       String?          @map("password_hash")
+  branchId           String?          @map("branch_id")
+  branch             Branch?          @relation(fields: [branchId], references: [id])
+  available          Boolean          @default(true)
+  currentLat         Float?           @map("current_lat")
+  currentLng         Float?           @map("current_lng")
+  lastLocationUpdate DateTime?        @map("last_location_update")
+  orders             Order[]
+  locationHistory    DriverLocation[]
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@map("drivers")
+}
+
+model DriverLocation {
+  id        String   @id @default(uuid())
+  driverId  String   @map("driver_id")
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  lat       Float
+  lng       Float
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  @@index([driverId, recordedAt])
+  @@map("driver_locations")
+}
+
+// ---------------------------------------------------------------------------
+// Rewards, notifications, banners, settings, audit
+// ---------------------------------------------------------------------------
+
+model RewardPoint {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points    Int
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("reward_points")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String?
+  channel   String   @default("in_app") // in_app|email|sms|push
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
   @@map("notifications")
+}
+
+model Banner {
+  id        String   @id @default(uuid())
+  title     String?
+  subtitle  String?
+  imageUrl  String   @map("image_url") // Supabase Storage object path
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("banners")
 }
 
 model Setting {
@@ -286,7 +436,7 @@ model AuditLog {
   id         String   @id @default(uuid())
   userId     String?  @map("user_id")
   user       User?    @relation(fields: [userId], references: [id])
-  action     String   // e.g. booking.approve, room.create
+  action     String   // e.g. order.cancel, product.update
   entityType String?  @map("entity_type")
   entityId   String?  @map("entity_id")
   ip         String?
@@ -297,4 +447,94 @@ model AuditLog {
   @@index([userId])
   @@index([action])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Monastery guest-house booking system (shares the same User/Role tables as
+// the juice-shop app above — this is a request/approval workflow, not
+// instant-confirm: a guest submits a request, a COORDINATOR staff member
+// approves or rejects it, and only a SUPERVISOR can set how many beds a
+// room actually has).
+// ---------------------------------------------------------------------------
+
+enum RoomType {
+  PRIVATE // خلوة / أوضة لوحده
+  SHARED  // أوضة مشتركة — يسكن مع ناس تانية
+}
+
+enum RoomGender {
+  MALE   // للشباب
+  FEMALE // للسيدات
+  ANY    // غير مخصصة لجنس معين (عائلات مثلاً)
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Room {
+  id        String     @id @default(uuid())
+  name      String     // "خلوة 3", "أوضة شباب 1"
+  type      RoomType
+  gender    RoomGender @default(ANY)
+  // Set exclusively by a SUPERVISOR — never inferred, never guest-editable.
+  capacity  Int        @map("capacity")
+  isActive  Boolean    @default(true) @map("is_active")
+  notes     String?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  bookingRequests BookingRequest[]
+
+  @@map("mms_rooms")
+}
+
+model BookingRequest {
+  id           String        @id @default(uuid())
+  guestId      String        @map("guest_id")
+  guest        User          @relation("GuestBookings", fields: [guestId], references: [id])
+
+  type         RoomType
+  gender       RoomGender
+  headcount    Int
+  checkInDate  DateTime      @map("check_in_date") @db.Date
+  nights       Int
+  checkOutDate DateTime      @map("check_out_date") @db.Date
+
+  // Assigned by the coordinator, typically at approval time — null before that.
+  roomId       String?       @map("room_id")
+  room         Room?         @relation(fields: [roomId], references: [id])
+
+  status       BookingStatus @default(PENDING)
+  guestNotes   String?       @map("guest_notes")
+  reviewNotes  String?       @map("review_notes") // e.g. rejection reason
+
+  reviewedById String?       @map("reviewed_by_id")
+  reviewedBy   User?         @relation("ReviewedBookings", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?     @map("reviewed_at")
+
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([checkInDate, checkOutDate])
+  @@index([status])
+  @@index([guestId])
+  @@map("mms_booking_requests")
+}
+
+model News {
+  id          String    @id @default(uuid())
+  title       String
+  body        String
+  imageUrl    String?   @map("image_url")
+  isPublished Boolean   @default(true) @map("is_published")
+  authorId    String?   @map("author_id")
+  author      User?     @relation("NewsAuthor", fields: [authorId], references: [id])
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("mms_news")
 }

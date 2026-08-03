@@ -1,4 +1,4 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, Length, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Length, Min, MinLength } from 'class-validator';
 
 export class RequestOtpDto {
   @IsString()
@@ -29,13 +29,23 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
-  @IsOptional()
   @IsString()
-  phone?: string;
+  phone: string;
 
   @IsString()
   @MinLength(8)
   password: string;
+
+  // Monastery guest-house fields — optional so the juice-shop customer
+  // registration flow (which never sends these) keeps working unchanged.
+  @IsOptional()
+  @IsString()
+  churchName?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  age?: number;
 }
 
 export class LoginDto {
@@ -71,31 +81,4 @@ export class ResetPasswordDto {
 export class RefreshTokenDto {
   @IsString()
   refreshToken: string;
-}
-
-export class ResendVerificationDto {
-  @IsEmail()
-  email: string;
-}
-
-export class VerifyEmailDto {
-  @IsEmail()
-  email: string;
-
-  @IsString()
-  @Length(6, 6)
-  code: string;
-}
-
-export class ConfirmChangePasswordDto {
-  @IsString()
-  currentPassword: string;
-
-  @IsString()
-  @MinLength(8)
-  newPassword: string;
-
-  @IsString()
-  @Length(6, 6)
-  code: string;
 }
