@@ -1,149 +1,87 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Citrine Ops — Employee Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<title>لوحة مسؤول الحجز - Booking Manager</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ============================= LOGIN GATE ============================= -->
-<div class="gate-screen" id="gateScreen">
-  <div class="gate-card glass">
-    <div class="brand">CITRINE <span>OPS</span></div>
-    <p class="sub">Employee Dashboard — sign in with your account</p>
-    <input type="email" id="gateEmailInput" placeholder="Email" autocomplete="username" />
-    <input type="password" id="gatePasswordInput" placeholder="Password" autocomplete="current-password" />
-    <div class="gate-error" id="gateError"></div>
-    <button class="btn btn-primary btn-block" id="gateSubmit">Sign In</button>
-  </div>
+<div id="loginScreen" class="loginScreen">
+  <form id="loginForm" class="authForm">
+    <h1>لوحة مسؤول الحجز</h1>
+    <label>البريد الإلكتروني <input type="email" name="email" required /></label>
+    <label>كلمة المرور <input type="password" name="password" required /></label>
+    <button type="submit">دخول</button>
+    <p class="hint" id="loginHint"></p>
+  </form>
 </div>
 
-<!-- ============================= DASHBOARD SHELL ============================= -->
-<div class="dash-shell" id="dashShell">
-  <aside class="sidebar">
-    <div class="brand">CITRINE <span>OPS</span></div>
-    <button class="nav-item active" data-panel="orders">📦 Orders</button>
-    <button class="nav-item" data-panel="products">🍊 Products</button>
-    <div class="sidebar-footer">
-      <span class="role-tag">EMPLOYEE ACCESS</span>
-      <button class="btn btn-outline btn-block btn-sm" id="logoutBtn">Log Out</button>
-    </div>
-  </aside>
+<div id="dashboard" class="dashboard" hidden>
+  <header class="topbar">
+    <div class="brand">🛎️ مسؤول الحجز</div>
+    <nav class="nav">
+      <button class="navBtn" data-view="requests">طلبات الحجز</button>
+      <button class="navBtn" data-view="checkin">تسجيل وصول (QR)</button>
+      <button class="navBtn" id="logoutBtn">خروج</button>
+    </nav>
+  </header>
 
-  <div class="main-col">
-    <div class="topbar">
-      <h1 id="panelTitle">Orders</h1>
-      <span class="live-dot">LIVE · REFRESHES EVERY 5S</span>
-    </div>
+  <main id="app">
 
-    <!-- ORDERS PANEL -->
-    <section class="panel active" id="panel-orders">
-      <div class="toolbar">
-        <input type="text" id="orderSearch" placeholder="Search by name, phone, order ID…" />
+    <section id="view-requests" class="view">
+      <h1>طلبات الحجز</h1>
+      <div class="filters">
         <select id="statusFilter">
-          <option value="">All statuses</option>
-          <option>Pending</option>
-          <option>Preparing</option>
-          <option>Out for Delivery</option>
-          <option>Delivered</option>
-          <option>Cancelled</option>
-        </select>
-        <div class="spacer"></div>
-        <button class="btn btn-outline btn-sm" id="refreshOrdersBtn">Refresh Now</button>
-      </div>
-      <div class="table-wrap glass">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Driver</th><th>Placed</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="ordersTbody">
-            <tr class="loading-row"><td colspan="8">Loading orders…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- PRODUCTS PANEL -->
-    <section class="panel" id="panel-products">
-      <div class="toolbar">
-        <input type="text" id="productSearch" placeholder="Search products…" />
-        <div class="spacer"></div>
-        <button class="btn btn-primary btn-sm" id="addProductBtn">+ Add Product</button>
-      </div>
-      <div class="table-wrap glass">
-        <table class="data-table">
-          <thead>
-            <tr><th>Product</th><th>Category</th><th>Price</th><th>Available</th><th>Actions</th></tr>
-          </thead>
-          <tbody id="productsTbody">
-            <tr class="loading-row"><td colspan="5">Loading products…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </div>
-</div>
-
-<!-- ============================= PRODUCT MODAL ============================= -->
-<div class="modal-scrim" id="productModalScrim">
-  <div class="modal glass">
-    <h2 id="productModalTitle">Add Product</h2>
-    <form id="productForm">
-      <input type="hidden" id="pId" />
-      <div class="form-field"><label>Name</label><input type="text" id="pName" required /></div>
-      <div class="form-field"><label>Description</label><textarea id="pDescription" rows="2"></textarea></div>
-      <div class="form-field"><label>Price (EGP)</label><input type="number" id="pPrice" step="0.01" min="0" required /></div>
-      <div class="form-field">
-        <label>Category</label>
-        <select id="pCategory">
-          <option>Citrus</option><option>Green</option><option>Berry</option>
-          <option>Tropical</option><option>Shots</option><option>Smoothie</option><option>Other</option>
+          <option value="pending">قيد المراجعة</option>
+          <option value="approved">مقبول</option>
+          <option value="checked_in">تم تسجيل الوصول</option>
+          <option value="completed">مكتمل</option>
+          <option value="rejected">مرفوض</option>
+          <option value="cancelled">ملغى</option>
+          <option value="">الكل</option>
         </select>
       </div>
-      <div class="form-field"><label>Image URL</label><input type="url" id="pImage" placeholder="https://…" /></div>
-      <label class="check-row"><input type="checkbox" id="pAvailable" checked /> Available on customer site</label>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-outline" id="productModalCancel">Cancel</button>
-        <button type="submit" class="btn btn-primary" id="productModalSave">Save Product</button>
-      </div>
-    </form>
-  </div>
+      <div id="bookingsList" class="bookingsList"></div>
+    </section>
+
+    <section id="view-checkin" class="view" hidden>
+      <h1>تسجيل وصول عن طريق QR</h1>
+      <p>الصق محتوى رمز QR الممسوح (نص JSON) هنا:</p>
+      <form id="qrForm" class="inlineForm">
+        <textarea name="payload" placeholder='{"bookingId":"...","code":"MON-2026-000125"}' required></textarea>
+        <button type="submit">تسجيل الوصول</button>
+      </form>
+      <div id="qrResult" class="resultBox" hidden></div>
+    </section>
+
+  </main>
 </div>
 
-<!-- ============================= ASSIGN DRIVER MODAL ============================= -->
-<div class="modal-scrim" id="driverModalScrim">
-  <div class="modal glass">
-    <h2>Assign Delivery Driver</h2>
-    <div class="form-field">
-      <label>Driver</label>
-      <select id="driverSelect"></select>
-    </div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-outline" id="driverModalCancel">Cancel</button>
-      <button type="button" class="btn btn-primary" id="driverModalConfirm">Assign</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============================= INVOICE MODAL ============================= -->
-<div class="modal-scrim" id="invoiceModalScrim">
-  <div class="modal glass" id="invoiceModal" style="max-width:520px;">
-    <div id="invoiceContent"></div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-outline" id="invoiceClose">Close</button>
-      <button type="button" class="btn btn-primary" id="invoicePrint">🖨 Print Invoice</button>
+<div id="reassignModal" class="modalScrim" hidden>
+  <div class="modal">
+    <h2>نقل إلى غرفة أخرى</h2>
+    <select id="reassignRoomSelect"></select>
+    <div class="modalActions">
+      <button id="reassignConfirm">تأكيد النقل</button>
+      <button id="reassignCancel">إلغاء</button>
     </div>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div id="messageModal" class="modalScrim" hidden>
+  <div class="modal">
+    <h2>إرسال رسالة للمستخدم</h2>
+    <textarea id="messageText" placeholder="نص الرسالة"></textarea>
+    <div class="modalActions">
+      <button id="messageConfirm">إرسال</button>
+      <button id="messageCancel">إلغاء</button>
+    </div>
+  </div>
+</div>
 
+<div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
 </body>
 </html>

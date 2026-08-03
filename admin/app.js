@@ -1,410 +1,411 @@
-/**
- * ============================================================================
- * CITRINE OPS — ADMIN DASHBOARD
- * Talks to the NestJS backend. Auth is real email+password JWT login
- * (POST /api/auth/login) — the accessKey/ADMIN_KEY shared-secret system is
- * gone. The JWT lives in an httpOnly cookie set by the backend; this file
- * never reads or stores it directly, it just sends credentials: 'include'
- * on every request and lets the browser attach the cookie.
- * ============================================================================
- */
 const CONFIG = {
-  API_BASE: 'https://server-production-036d.up.railway.app/api',
-  REFRESH_MS: 5000
+  API_URL: 'https://server-production-f5ce.up.railway.app/api',
 };
 
-let ORDERS = [];
-let PRODUCTS = [];
-let DRIVERS = [];
-let pollTimer = null;
-let assignOrderId = null;
+let TOKEN = localStorage.getItem('monastery_admin_token') || null;
+let USER = JSON.parse(localStorage.getItem('monastery_admin_user') || 'null');
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (TOKEN && USER) showDashboard();
+  initLogin();
+  initNav();
+  initRooms();
+  initNews();
+  initBookings();
+  initUsers();
+});
 
 // ---------------------------------------------------------------------------
-// API
+// API helper
 // ---------------------------------------------------------------------------
-// The action dispatcher stays (some staff-only bulk operations — getStats,
-// deleteAllOrders — don't have individual REST endpoints yet), but auth is
-// now the same httpOnly JWT cookie every other route uses, not a shared key
-// sent in the request body.
-async function api(action, payload) {
-  const res = await fetch(`${CONFIG.API_BASE}/citrine/actions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(Object.assign({ action }, payload || {}))
+async function api(path, { method = 'GET', body, isForm = false } = {}) {
+  const headers = {};
+  if (TOKEN) headers['Authorization'] = `Bearer ${TOKEN}`;
+  if (!isForm) headers['Content-Type'] = 'application/json';
+  const res = await fetch(`${CONFIG.API_URL}${path}`, {
+    method,
+    headers,
+    body: isForm ? body : body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 || res.status === 403) {
-    showGate();
-    throw new Error('Session expired — please log in again.');
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) {
+    const message = (data && (data.message || data.error)) || `Request failed (${res.status})`;
+    throw new Error(Array.isArray(message) ? message.join(', ') : message);
   }
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || json.message || 'Request failed.');
-  return json.data;
+  return data;
 }
 
-function toast(msg, type) {
+function toast(msg, isError = false) {
   const el = document.getElementById('toast');
   el.textContent = msg;
-  el.className = 'toast show' + (type ? ' ' + type : '');
-  clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.remove('show'), 3200);
+  el.classList.toggle('error', isError);
+  el.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.hidden = true; }, 5000);
+}
+
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ---------------------------------------------------------------------------
-// LOGIN GATE (email + password)
+// Login / session
 // ---------------------------------------------------------------------------
-document.getElementById('gateSubmit').onclick = tryLogin;
-['gateEmailInput', 'gatePasswordInput'].forEach(id => {
-  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
-});
-
-async function tryLogin() {
-  const email = document.getElementById('gateEmailInput').value.trim();
-  const password = document.getElementById('gatePasswordInput').value;
-  if (!email || !password) return;
-  document.getElementById('gateError').textContent = '';
-  document.getElementById('gateSubmit').textContent = 'Signing in…';
-  try {
-    const res = await fetch(`${CONFIG.API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email, password })
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.message || 'Invalid email or password.');
-
-    // The action dispatcher still gates on role server-side, but check here
-    // too so an employee account gets a clear message instead of a wall of
-    // 403s the moment loadAll() starts firing.
-    const who = await api('whoAmI', {});
-    if (!['admin', 'super_admin'].includes(who.role)) {
-      throw new Error('This account is not an admin account.');
+function initLogin() {
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      const data = await api('/auth/login', { method: 'POST', body: { email: fd.get('email'), password: fd.get('password') } });
+      TOKEN = data.accessToken;
+      USER = data.user;
+      localStorage.setItem('monastery_admin_token', TOKEN);
+      localStorage.setItem('monastery_admin_user', JSON.stringify(USER));
+      await api('/rooms'); // super_admin/booking_manager-only — confirms this account has a staff role
+      showDashboard();
+    } catch (err) {
+      document.getElementById('loginHint').textContent = err.message;
+      TOKEN = null;
+      localStorage.removeItem('monastery_admin_token');
     }
-    enterDashboard();
-  } catch (err) {
-    document.getElementById('gateError').textContent = err.message;
-  } finally {
-    document.getElementById('gateSubmit').textContent = 'Sign In';
-  }
-}
-
-function showGate() {
-  clearInterval(pollTimer);
-  document.getElementById('dashShell').classList.remove('active');
-  document.getElementById('gateScreen').style.display = 'flex';
-}
-
-function enterDashboard() {
-  document.getElementById('gateScreen').style.display = 'none';
-  document.getElementById('dashShell').classList.add('active');
-  loadAll();
-  pollTimer = setInterval(loadAll, CONFIG.REFRESH_MS);
-}
-
-document.getElementById('logoutBtn').onclick = async () => {
-  try {
-    await fetch(`${CONFIG.API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
-  } finally {
-    clearInterval(pollTimer);
-    location.reload();
-  }
-};
-
-// If a valid JWT cookie already exists from an earlier visit this session,
-// skip straight to the dashboard instead of showing the login form again.
-(async function checkExistingSession() {
-  try {
-    const who = await api('whoAmI', {});
-    if (['admin', 'super_admin'].includes(who.role)) enterDashboard();
-  } catch {
-    // Not logged in (or session expired) — the gate screen is already the
-    // default visible state in the HTML, nothing else to do here.
-  }
-})();
-
-// ---------------------------------------------------------------------------
-// NAV
-// ---------------------------------------------------------------------------
-document.querySelectorAll('.nav-item[data-panel]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('panel-' + btn.dataset.panel).classList.add('active');
-    document.getElementById('panelTitle').textContent = btn.textContent.trim().replace(/^\S+\s/, '');
   });
-});
 
-// ---------------------------------------------------------------------------
-// LOAD
-// ---------------------------------------------------------------------------
-async function loadAll() {
-  try {
-    const [orders, products, drivers, stats] = await Promise.all([
-      api('getOrders', {}), api('getProducts', {}), api('getDrivers', {}), api('getStats', {})
-    ]);
-    ORDERS = orders; PRODUCTS = products; DRIVERS = drivers;
-    renderOrders();
-    renderProducts();
-    renderDrivers();
-    renderStats(stats);
-  } catch (err) {
-    toast(err.message, 'error');
-  }
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    TOKEN = null;
+    USER = null;
+    localStorage.removeItem('monastery_admin_token');
+    localStorage.removeItem('monastery_admin_user');
+    document.getElementById('dashboard').hidden = true;
+    document.getElementById('loginScreen').hidden = false;
+  });
 }
 
-function renderStats(s) {
-  document.getElementById('statDaily').textContent = 'EGP ' + s.dailySales.toFixed(2);
-  document.getElementById('statMonthly').textContent = 'EGP ' + s.monthlySales.toFixed(2);
-  document.getElementById('statRevenue').textContent = 'EGP ' + s.totalRevenue.toFixed(2);
-  document.getElementById('statTotal').textContent = s.totalOrders;
-  document.getElementById('statCompleted').textContent = s.completedCount;
-  document.getElementById('statCancelled').textContent = s.cancelledCount;
+function showDashboard() {
+  document.getElementById('loginScreen').hidden = true;
+  document.getElementById('dashboard').hidden = false;
+  loadStats();
+  loadRooms();
 }
 
 // ---------------------------------------------------------------------------
-// DRIVERS MANAGEMENT
+// Navigation
 // ---------------------------------------------------------------------------
-function renderDrivers() {
-  const tbody = document.getElementById('driversTbody');
-  if (!DRIVERS.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No drivers yet. Add your first one.</td></tr>'; return; }
-  tbody.innerHTML = DRIVERS.map(d => `
-    <tr>
-      <td class="mono">${esc(d.id)}</td>
-      <td>${esc(d.name)}</td>
-      <td class="mono">${esc(d.phone || '—')}</td>
-      <td><span class="pill ${d.available ? 'pill-Delivered' : 'pill-Cancelled'}">${d.available ? 'Yes' : 'No'}</span></td>
-      <td class="row-actions">
-        <button class="btn btn-outline btn-sm" data-edit-driver="${esc(d.id)}">Edit</button>
-        <button class="btn btn-danger btn-sm" data-delete-driver="${esc(d.id)}">Delete</button>
-      </td>
-    </tr>`).join('');
-  tbody.querySelectorAll('[data-edit-driver]').forEach(b => b.addEventListener('click', () => openDriverForm(b.dataset.editDriver)));
-  tbody.querySelectorAll('[data-delete-driver]').forEach(b => b.addEventListener('click', () => deleteDriverRow(b.dataset.deleteDriver)));
-}
-
-function openDriverForm(id) {
-  const d = id ? DRIVERS.find(dr => dr.id === id) : null;
-  document.getElementById('driverFormTitle').textContent = d ? 'Edit Driver' : 'Add Driver';
-  document.getElementById('dId').value = d ? d.id : '';
-  document.getElementById('dName').value = d ? d.name : '';
-  document.getElementById('dPhone').value = d ? d.phone : '';
-  document.getElementById('dAvailable').checked = d ? d.available : true;
-  document.getElementById('driverFormModalScrim').classList.add('open');
-}
-document.getElementById('addDriverBtn').onclick = () => openDriverForm(null);
-document.getElementById('driverFormCancel').onclick = () => document.getElementById('driverFormModalScrim').classList.remove('open');
-document.getElementById('driverForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const id = document.getElementById('dId').value;
-  const payload = {
-    name: document.getElementById('dName').value.trim(),
-    phone: document.getElementById('dPhone').value.trim(),
-    available: document.getElementById('dAvailable').checked
-  };
-  try {
-    if (id) await api('editDriver', Object.assign({ id }, payload));
-    else await api('addDriver', payload);
-    toast('Driver saved.', 'success');
-    document.getElementById('driverFormModalScrim').classList.remove('open');
-    loadAll();
-  } catch (err) { toast(err.message, 'error'); }
-});
-async function deleteDriverRow(id) {
-  if (!confirm('Remove this driver?')) return;
-  try { await api('deleteDriver', { id }); toast('Driver removed.', 'success'); loadAll(); }
-  catch (err) { toast(err.message, 'error'); }
-}
-
-// ---------------------------------------------------------------------------
-// DANGER ZONE
-// ---------------------------------------------------------------------------
-document.getElementById('deleteCompletedBtn').onclick = async () => {
-  if (!confirm('Delete all Delivered orders permanently?')) return;
-  try { const r = await api('deleteCompletedOrders', {}); toast(`Deleted ${r.deleted} completed orders.`, 'success'); loadAll(); }
-  catch (err) { toast(err.message, 'error'); }
-};
-document.getElementById('deleteAllBtn').onclick = async () => {
-  if (!confirm('This deletes EVERY order in the system. Type OK to confirm in the next prompt.')) return;
-  const confirmText = prompt('Type DELETE ALL to confirm:');
-  if (confirmText !== 'DELETE ALL') { toast('Cancelled — confirmation text did not match.', 'error'); return; }
-  try { await api('deleteAllOrders', { confirm: 'DELETE_ALL' }); toast('All orders deleted.', 'success'); loadAll(); }
-  catch (err) { toast(err.message, 'error'); }
-};
-document.getElementById('refreshOrdersBtn').onclick = loadAll;
-
-// ---------------------------------------------------------------------------
-// ORDERS
-// ---------------------------------------------------------------------------
-function renderOrders() {
-  const search = document.getElementById('orderSearch').value.trim().toLowerCase();
-  const statusFilter = document.getElementById('statusFilter').value;
-  let list = ORDERS;
-  if (statusFilter) list = list.filter(o => o.status === statusFilter);
-  if (search) list = list.filter(o => (o.id + o.customerName + o.phone).toLowerCase().includes(search));
-
-  const tbody = document.getElementById('ordersTbody');
-  if (!list.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No orders match.</td></tr>'; return; }
-
-  tbody.innerHTML = list.map(o => `
-    <tr>
-      <td class="mono">${esc(o.id)}</td>
-      <td>${esc(o.customerName)}<br><span class="mono" style="color:var(--text-dim);font-size:0.72rem">${esc(o.phone)}</span></td>
-      <td>${o.items.map(i => esc(i.name) + ' ×' + i.qty).join('<br>')}</td>
-      <td class="mono">EGP ${o.totalPrice.toFixed(2)}</td>
-      <td>
-        <select class="status-select" data-status="${esc(o.id)}">
-          ${['Pending','Preparing','Out for Delivery','Delivered','Cancelled'].map(s => `<option ${s === o.status ? 'selected' : ''}>${s}</option>`).join('')}
-        </select>
-      </td>
-      <td class="mono">${esc(o.assignedDriver ? driverName(o.assignedDriver) : '—')}</td>
-      <td class="mono" style="font-size:0.76rem">${esc(o.date)}<br>${esc(o.time)}</td>
-      <td>
-        <div class="row-actions">
-          <button class="btn btn-outline btn-sm" data-assign="${esc(o.id)}">Assign</button>
-          <button class="btn btn-outline btn-sm" data-invoice="${esc(o.id)}">Invoice</button>
-        </div>
-      </td>
-    </tr>`).join('');
-
-  tbody.querySelectorAll('[data-status]').forEach(sel => {
-    sel.addEventListener('change', async () => {
-      try { await api('updateOrderStatus', { orderId: sel.dataset.status, status: sel.value }); toast('Status updated.', 'success'); loadAll(); }
-      catch (err) { toast(err.message, 'error'); }
+function initNav() {
+  document.querySelectorAll('.navBtn[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.view').forEach((v) => (v.hidden = true));
+      document.getElementById(`view-${btn.dataset.view}`).hidden = false;
+      if (btn.dataset.view === 'stats') loadStats();
+      if (btn.dataset.view === 'rooms') loadRooms();
+      if (btn.dataset.view === 'news') loadNewsAdmin();
+      if (btn.dataset.view === 'bookings') loadAdminBookings();
+      if (btn.dataset.view === 'users') loadUsers();
     });
   });
-  tbody.querySelectorAll('[data-assign]').forEach(b => b.addEventListener('click', () => openAssignModal(b.dataset.assign)));
-  tbody.querySelectorAll('[data-invoice]').forEach(b => b.addEventListener('click', () => openInvoice(b.dataset.invoice)));
-}
-document.getElementById('orderSearch').addEventListener('input', renderOrders);
-document.getElementById('statusFilter').addEventListener('change', renderOrders);
-
-function driverName(id) {
-  const d = DRIVERS.find(dr => dr.id === id);
-  return d ? d.name : id;
 }
 
 // ---------------------------------------------------------------------------
-// ASSIGN DRIVER MODAL
+// Stats (simple counts derived from bookings + rooms lists — no dedicated
+// stats endpoint was added, so this stays a lightweight client-side rollup)
 // ---------------------------------------------------------------------------
-function openAssignModal(orderId) {
-  assignOrderId = orderId;
-  const select = document.getElementById('driverSelect');
-  select.innerHTML = DRIVERS.map(d => `<option value="${esc(d.id)}">${esc(d.name)}${d.available ? '' : ' (busy)'}</option>`).join('');
-  document.getElementById('driverModalScrim').classList.add('open');
-}
-document.getElementById('driverModalCancel').onclick = () => document.getElementById('driverModalScrim').classList.remove('open');
-document.getElementById('driverModalConfirm').onclick = async () => {
-  const driverId = document.getElementById('driverSelect').value;
-  if (!driverId) return;
+async function loadStats() {
+  const grid = document.getElementById('statsGrid');
+  grid.innerHTML = '<p>جارِ التحميل...</p>';
   try {
-    await api('assignDriver', { orderId: assignOrderId, driverId });
-    toast('Driver assigned.', 'success');
-    document.getElementById('driverModalScrim').classList.remove('open');
-    loadAll();
-  } catch (err) { toast(err.message, 'error'); }
+    const [rooms, bookings] = await Promise.all([api('/rooms'), api('/bookings')]);
+    const totalBeds = rooms.reduce((s, r) => s + r.capacity, 0);
+    const byStatus = {};
+    bookings.forEach((b) => { byStatus[b.status] = (byStatus[b.status] || 0) + 1; });
+    grid.innerHTML = `
+      <div class="statCard"><span class="statNum">${rooms.length}</span><span>غرفة</span></div>
+      <div class="statCard"><span class="statNum">${totalBeds}</span><span>سرير</span></div>
+      <div class="statCard"><span class="statNum">${byStatus.pending || 0}</span><span>طلبات قيد المراجعة</span></div>
+      <div class="statCard"><span class="statNum">${byStatus.approved || 0}</span><span>حجوزات مقبولة</span></div>
+      <div class="statCard"><span class="statNum">${byStatus.checked_in || 0}</span><span>ضيوف حاليون</span></div>
+      <div class="statCard"><span class="statNum">${byStatus.completed || 0}</span><span>إقامات مكتملة</span></div>
+    `;
+  } catch (err) {
+    grid.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rooms
+// ---------------------------------------------------------------------------
+function initRooms() {
+  document.getElementById('roomForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const id = fd.get('id');
+    const body = {
+      number: fd.get('number'),
+      capacity: Number(fd.get('capacity')),
+      type: fd.get('type') || undefined,
+      notes: fd.get('notes') || undefined,
+    };
+    try {
+      if (id) {
+        await api(`/rooms/${id}`, { method: 'PATCH', body });
+        toast('تم تحديث الغرفة');
+      } else {
+        await api('/rooms', { method: 'POST', body });
+        toast('تمت إضافة الغرفة');
+      }
+      resetRoomForm();
+      loadRooms();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  document.getElementById('roomFormCancel').addEventListener('click', resetRoomForm);
+}
+
+function resetRoomForm() {
+  const form = document.getElementById('roomForm');
+  form.reset();
+  form.elements.id.value = '';
+  document.getElementById('roomFormCancel').hidden = true;
+}
+
+async function loadRooms() {
+  const tbody = document.getElementById('roomsTableBody');
+  try {
+    const rooms = await api('/rooms');
+    tbody.innerHTML = rooms.map((r) => `
+      <tr>
+        <td>${escapeHtml(r.number)}</td>
+        <td>${r.capacity}</td>
+        <td>${escapeHtml(r.type || '-')}</td>
+        <td>${r.isActive ? 'نشطة' : 'موقوفة'}</td>
+        <td>
+          <button data-edit="${r.id}">تعديل</button>
+          <button data-toggle="${r.id}" data-active="${r.isActive}">${r.isActive ? 'إيقاف' : 'تفعيل'}</button>
+          <button data-delete="${r.id}">حذف</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
+      const room = rooms.find((r) => r.id === btn.dataset.edit);
+      const form = document.getElementById('roomForm');
+      form.elements.id.value = room.id;
+      form.elements.number.value = room.number;
+      form.elements.capacity.value = room.capacity;
+      form.elements.type.value = room.type || '';
+      form.elements.notes.value = room.notes || '';
+      document.getElementById('roomFormCancel').hidden = false;
+    }));
+    tbody.querySelectorAll('[data-toggle]').forEach((btn) => btn.addEventListener('click', async () => {
+      try {
+        await api(`/rooms/${btn.dataset.toggle}`, { method: 'PATCH', body: { isActive: btn.dataset.active !== 'true' } });
+        loadRooms();
+      } catch (err) { toast(err.message, true); }
+    }));
+    tbody.querySelectorAll('[data-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('حذف هذه الغرفة نهائياً؟')) return;
+      try {
+        await api(`/rooms/${btn.dataset.delete}`, { method: 'DELETE' });
+        loadRooms();
+      } catch (err) { toast(err.message, true); }
+    }));
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="error">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// News
+// ---------------------------------------------------------------------------
+const NEWS_CATEGORY_LABELS = {
+  news: 'خبر', mass_schedule: 'مواعيد قداسات', conference: 'مؤتمر', meeting: 'اجتماع', event: 'مناسبة',
 };
 
-// ---------------------------------------------------------------------------
-// INVOICE
-// ---------------------------------------------------------------------------
-async function openInvoice(orderId) {
+function initNews() {
+  document.getElementById('newsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const id = fd.get('id');
+    const body = {
+      title: fd.get('title'),
+      body: fd.get('body') || undefined,
+      category: fd.get('category'),
+      isPinned: fd.get('isPinned') === 'on',
+    };
+    try {
+      if (id) {
+        await api(`/news/${id}`, { method: 'PATCH', body });
+        toast('تم تحديث الخبر');
+      } else {
+        await api('/news', { method: 'POST', body });
+        toast('تمت إضافة الخبر');
+      }
+      resetNewsForm();
+      loadNewsAdmin();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+  document.getElementById('newsFormCancel').addEventListener('click', resetNewsForm);
+}
+
+function resetNewsForm() {
+  const form = document.getElementById('newsForm');
+  form.reset();
+  form.elements.id.value = '';
+  document.getElementById('newsFormCancel').hidden = true;
+}
+
+async function loadNewsAdmin() {
+  const container = document.getElementById('newsAdminList');
   try {
-    const o = await api('getInvoiceData', { orderId });
-    document.getElementById('invoiceContent').innerHTML = `
-      <div class="invoice-sheet">
-        <h2>🍊 CITRINE JUICE CO.</h2>
-        <p style="color:#666;margin-top:-8px;">Cold-Pressed, Delivered Fresh</p>
-        <div class="invoice-row"><span>Order ID</span><strong>${esc(o.id)}</strong></div>
-        <div class="invoice-row"><span>Customer</span><strong>${esc(o.customerName)}</strong></div>
-        <div class="invoice-row"><span>Phone</span><strong>${esc(o.phone)}</strong></div>
-        <div class="invoice-row"><span>Date</span><strong>${esc(o.date)} ${esc(o.time)}</strong></div>
-        <div class="invoice-row"><span>Driver</span><strong>${esc(o.driverName || '—')}</strong></div>
-        <h3 style="margin-top:18px;">Items</h3>
-        ${o.items.map(i => `<div class="invoice-row"><span>${esc(i.name)} × ${i.qty}</span><span>EGP ${(i.qty * i.price).toFixed(2)}</span></div>`).join('')}
-        <div class="invoice-row" style="font-size:1.1rem;border-top:2px solid #111;margin-top:8px;padding-top:10px;"><span>Total</span><strong>EGP ${o.totalPrice.toFixed(2)}</strong></div>
-        <div style="text-align:center;margin-top:20px;">
-          <img alt="QR code for ${esc(o.id)}" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(o.id)}" />
-          <p style="font-size:0.7rem;color:#999;">Scan to verify order ID</p>
+    const posts = await api('/news/admin');
+    if (!posts.length) { container.innerHTML = '<p>لا توجد أخبار بعد.</p>'; return; }
+    container.innerHTML = posts.map((p) => `
+      <article class="newsCard ${p.isHidden ? 'hidden-post' : ''}">
+        <span class="badge">${NEWS_CATEGORY_LABELS[p.category] || p.category}</span>
+        ${p.isPinned ? '<span class="pin">📌</span>' : ''}
+        <h3>${escapeHtml(p.title)}</h3>
+        ${p.body ? `<p>${escapeHtml(p.body)}</p>` : ''}
+        <div class="newsImages">${(p.media || []).filter((m) => m.type === 'image').map((m) => `<img src="${m.url}" alt="" />`).join('')}</div>
+        <div class="newsFiles">${(p.media || []).filter((m) => m.type === 'file').map((m) => `<a href="${m.url}" target="_blank">📎 ${escapeHtml(m.fileName || 'ملف')}</a>`).join('')}</div>
+        <div class="uploadRow">
+          <label class="uploadBtn">إضافة صورة <input type="file" accept="image/*" data-upload-image="${p.id}" hidden /></label>
+          <label class="uploadBtn">إضافة ملف <input type="file" data-upload-file="${p.id}" hidden /></label>
         </div>
-      </div>`;
-    document.getElementById('invoiceModalScrim').classList.add('open');
-  } catch (err) { toast(err.message, 'error'); }
-}
-document.getElementById('invoiceClose').onclick = () => document.getElementById('invoiceModalScrim').classList.remove('open');
-document.getElementById('invoicePrint').onclick = () => window.print();
+        <div class="cardActions">
+          <button data-edit-news="${p.id}">تعديل</button>
+          <button data-hide-news="${p.id}" data-hidden="${p.isHidden}">${p.isHidden ? 'إظهار' : 'إخفاء'}</button>
+          <button data-pin-news="${p.id}" data-pinned="${p.isPinned}">${p.isPinned ? 'إلغاء التثبيت' : 'تثبيت'}</button>
+          <button data-delete-news="${p.id}">حذف</button>
+        </div>
+      </article>`).join('');
 
-// ---------------------------------------------------------------------------
-// PRODUCTS
-// ---------------------------------------------------------------------------
-function renderProducts() {
-  const search = document.getElementById('productSearch').value.trim().toLowerCase();
-  let list = PRODUCTS;
-  if (search) list = list.filter(p => p.name.toLowerCase().includes(search));
-  const tbody = document.getElementById('productsTbody');
-  if (!list.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No products yet. Add your first one.</td></tr>'; return; }
-  tbody.innerHTML = list.map(p => `
-    <tr>
-      <td>${esc(p.name)}</td>
-      <td class="mono">${esc(p.category)}</td>
-      <td class="mono">EGP ${p.price.toFixed(2)}</td>
-      <td><span class="pill ${p.available ? 'pill-Delivered' : 'pill-Cancelled'}">${p.available ? 'Yes' : 'No'}</span></td>
-      <td class="row-actions">
-        <button class="btn btn-outline btn-sm" data-edit="${esc(p.id)}">Edit</button>
-        <button class="btn btn-danger btn-sm" data-delete="${esc(p.id)}">Delete</button>
-      </td>
-    </tr>`).join('');
-  tbody.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openProductModal(b.dataset.edit)));
-  tbody.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteProduct(b.dataset.delete)));
+    container.querySelectorAll('[data-edit-news]').forEach((btn) => btn.addEventListener('click', () => {
+      const post = posts.find((p) => p.id === btn.dataset.editNews);
+      const form = document.getElementById('newsForm');
+      form.elements.id.value = post.id;
+      form.elements.title.value = post.title;
+      form.elements.body.value = post.body || '';
+      form.elements.category.value = post.category;
+      form.elements.isPinned.checked = post.isPinned;
+      document.getElementById('newsFormCancel').hidden = false;
+    }));
+    container.querySelectorAll('[data-hide-news]').forEach((btn) => btn.addEventListener('click', async () => {
+      try {
+        await api(`/news/${btn.dataset.hideNews}`, { method: 'PATCH', body: { isHidden: btn.dataset.hidden !== 'true' } });
+        loadNewsAdmin();
+      } catch (err) { toast(err.message, true); }
+    }));
+    container.querySelectorAll('[data-pin-news]').forEach((btn) => btn.addEventListener('click', async () => {
+      try {
+        await api(`/news/${btn.dataset.pinNews}`, { method: 'PATCH', body: { isPinned: btn.dataset.pinned !== 'true' } });
+        loadNewsAdmin();
+      } catch (err) { toast(err.message, true); }
+    }));
+    container.querySelectorAll('[data-delete-news]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('حذف هذا الخبر نهائياً؟')) return;
+      try {
+        await api(`/news/${btn.dataset.deleteNews}`, { method: 'DELETE' });
+        loadNewsAdmin();
+      } catch (err) { toast(err.message, true); }
+    }));
+    container.querySelectorAll('[data-upload-image]').forEach((input) => input.addEventListener('change', () => uploadNewsMedia(input.dataset.uploadImage, input.files[0], 'image')));
+    container.querySelectorAll('[data-upload-file]').forEach((input) => input.addEventListener('change', () => uploadNewsMedia(input.dataset.uploadFile, input.files[0], 'file')));
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
 }
-document.getElementById('productSearch').addEventListener('input', renderProducts);
 
-function openProductModal(id) {
-  const p = id ? PRODUCTS.find(pr => pr.id === id) : null;
-  document.getElementById('productModalTitle').textContent = p ? 'Edit Product' : 'Add Product';
-  document.getElementById('pId').value = p ? p.id : '';
-  document.getElementById('pName').value = p ? p.name : '';
-  document.getElementById('pDescription').value = p ? p.description : '';
-  document.getElementById('pPrice').value = p ? p.price : '';
-  document.getElementById('pCategory').value = p ? p.category : 'Citrus';
-  document.getElementById('pImage').value = p ? p.image : '';
-  document.getElementById('pAvailable').checked = p ? p.available : true;
-  document.getElementById('productModalScrim').classList.add('open');
-}
-document.getElementById('addProductBtn').onclick = () => openProductModal(null);
-document.getElementById('productModalCancel').onclick = () => document.getElementById('productModalScrim').classList.remove('open');
-
-document.getElementById('productForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const id = document.getElementById('pId').value;
-  const payload = {
-    name: document.getElementById('pName').value.trim(),
-    description: document.getElementById('pDescription').value.trim(),
-    price: parseFloat(document.getElementById('pPrice').value),
-    category: document.getElementById('pCategory').value,
-    image: document.getElementById('pImage').value.trim(),
-    available: document.getElementById('pAvailable').checked
-  };
-  const saveBtn = document.getElementById('productModalSave');
-  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+async function uploadNewsMedia(newsId, file, kind) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
   try {
-    if (id) await api('editProduct', Object.assign({ id }, payload));
-    else await api('addProduct', payload);
-    toast('Product saved — now live on the customer site.', 'success');
-    document.getElementById('productModalScrim').classList.remove('open');
-    loadAll();
-  } catch (err) { toast(err.message, 'error'); }
-  finally { saveBtn.disabled = false; saveBtn.textContent = 'Save Product'; }
-});
-
-async function deleteProduct(id) {
-  if (!confirm('Delete this product? This cannot be undone.')) return;
-  try { await api('deleteProduct', { id }); toast('Product deleted.', 'success'); loadAll(); }
-  catch (err) { toast(err.message, 'error'); }
+    await api(`/news/${newsId}/media/${kind}`, { method: 'POST', body: fd, isForm: true });
+    toast('تم رفع الملف');
+    loadNewsAdmin();
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 // ---------------------------------------------------------------------------
-// UTIL
+// Bookings overview
 // ---------------------------------------------------------------------------
-function esc(str) { return String(str ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+const BOOKING_STATUS_LABELS = {
+  pending: 'قيد المراجعة', approved: 'مقبول', rejected: 'مرفوض',
+  checked_in: 'تم تسجيل الوصول', completed: 'مكتمل', cancelled: 'ملغى',
+};
+const BOOKING_TYPE_LABELS = { individual: 'حجز فرد', full_room: 'غرفة كاملة', retreat: 'خلوة جماعية' };
+
+function initBookings() {
+  document.getElementById('bookingStatusFilter').addEventListener('change', loadAdminBookings);
+}
+
+async function loadAdminBookings() {
+  const container = document.getElementById('adminBookingsList');
+  const status = document.getElementById('bookingStatusFilter').value;
+  try {
+    const bookings = await api(`/bookings${status ? `?status=${status}` : ''}`);
+    if (!bookings.length) { container.innerHTML = '<p>لا توجد حجوزات.</p>'; return; }
+    container.innerHTML = bookings.map((b) => `
+      <article class="bookingCard status-${b.status}">
+        <div class="bookingCardHead">
+          <strong>${BOOKING_TYPE_LABELS[b.type] || b.type}</strong>
+          <span class="badge">${BOOKING_STATUS_LABELS[b.status] || b.status}</span>
+        </div>
+        <p>${escapeHtml(b.user?.name || b.contactName || '')} — ${escapeHtml(b.phone)}</p>
+        ${b.code ? `<p>رقم الحجز: <strong>${b.code}</strong></p>` : ''}
+        <p>${new Date(b.arrivalDate).toLocaleDateString('ar-EG')} → ${new Date(b.departureDate).toLocaleDateString('ar-EG')}</p>
+      </article>`).join('');
+  } catch (err) {
+    container.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+function initUsers() {
+  document.getElementById('userForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('/users', {
+        method: 'POST',
+        body: { name: fd.get('name'), email: fd.get('email'), phone: fd.get('phone') || undefined, password: fd.get('password'), roleName: fd.get('roleName') },
+      });
+      toast('تم إنشاء الحساب');
+      e.target.reset();
+      loadUsers();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+}
+
+async function loadUsers() {
+  const tbody = document.getElementById('usersTableBody');
+  try {
+    const { items } = await api('/users');
+    tbody.innerHTML = items.map((u) => `
+      <tr>
+        <td>${escapeHtml(u.name || '-')}</td>
+        <td>${escapeHtml(u.email || '-')}</td>
+        <td>${escapeHtml(u.role?.name || '-')}</td>
+        <td>${u.isEmailVerified ? '✅' : '❌'}</td>
+        <td>${u.isActive ? '✅' : '❌'}</td>
+        <td>${u.isActive ? `<button data-deactivate="${u.id}">إيقاف الحساب</button>` : '-'}</td>
+      </tr>`).join('');
+    tbody.querySelectorAll('[data-deactivate]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('إيقاف هذا الحساب؟')) return;
+      try {
+        await api(`/users/${btn.dataset.deactivate}`, { method: 'DELETE' });
+        loadUsers();
+      } catch (err) { toast(err.message, true); }
+    }));
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="error">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
