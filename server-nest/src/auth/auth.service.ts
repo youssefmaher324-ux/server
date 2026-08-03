@@ -64,10 +64,10 @@ export class AuthService {
     return { success: true };
   }
 
-  async verifyOtp(identifier: string, code: string, name?: string, rememberMe = false, meta?: { ip?: string; userAgent?: string }, purpose: 'login' | 'verify_email' = 'login') {
+  async verifyOtp(identifier: string, code: string, name?: string, rememberMe = false, meta?: { ip?: string; userAgent?: string }) {
     const isEmail = identifier.includes('@');
     const candidate = await this.prisma.otpCode.findFirst({
-      where: { identifier, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
+      where: { identifier, purpose: 'login', consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -88,32 +88,24 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: { [isEmail ? 'email' : 'phone']: identifier, name, isEmailVerified: isEmail },
       });
-    } else {
-      const updates: { name?: string; isEmailVerified?: boolean } = {};
-      if (name && name !== user.name) updates.name = name;
-      // Signing up with a password sends a 'verify_email' code separately
-      // from login's 'login' code — this is the one place that actually
-      // flips isEmailVerified on, once that code is confirmed.
-      if (purpose === 'verify_email' && !user.isEmailVerified) updates.isEmailVerified = true;
-      if (Object.keys(updates).length) user = await this.prisma.user.update({ where: { id: user.id }, data: updates });
+    } else if (name && name !== user.name) {
+      user = await this.prisma.user.update({ where: { id: user.id }, data: { name } });
     }
 
     const tokens = await this.issueTokenPair(user.id, user.roleId ?? undefined, user.email ?? undefined, rememberMe, meta);
-    await this.audit.log({ userId: user.id, action: purpose === 'verify_email' ? 'auth.verify_email' : 'auth.login_otp', ip: meta?.ip, userAgent: meta?.userAgent });
+    await this.audit.log({ userId: user.id, action: 'auth.login_otp', ip: meta?.ip, userAgent: meta?.userAgent });
 
     return { user: { id: user.id, name: user.name, identifier }, ...tokens };
   }
 
   // ---- Password login ------------------------------------------------------
 
-  async register(name: string, email: string, phone: string, password: string, extra?: { churchName?: string; age?: number }) {
+  async register(name: string, email: string, phone: string, password: string) {
     const existing = await this.prisma.user.findFirst({ where: { OR: [{ email }, { phone }] } });
     if (existing) throw new BadRequestException('An account with this email or phone already exists');
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await this.prisma.user.create({
-      data: { name, email, phone, passwordHash, churchName: extra?.churchName, age: extra?.age },
-    });
+    const user = await this.prisma.user.create({ data: { name, email, phone, passwordHash } });
     await this.requestOtp(email, 'verify_email');
     return { success: true, userId: user.id };
   }

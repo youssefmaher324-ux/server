@@ -20,9 +20,6 @@ import { AuditModule } from './audit/audit.module';
 import { StorageModule } from './storage/storage.module';
 import { BannersModule } from './banners/banners.module';
 import { LegacyCompatModule } from './legacy-compat/legacy-compat.module';
-import { RoomsModule } from './rooms/rooms.module';
-import { BookingRequestsModule } from './booking-requests/booking-requests.module';
-import { NewsModule } from './news/news.module';
 
 @Module({
   imports: [
@@ -53,9 +50,6 @@ import { NewsModule } from './news/news.module';
     StorageModule,
     BannersModule,
     LegacyCompatModule,
-    RoomsModule,
-    BookingRequestsModule,
-    NewsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

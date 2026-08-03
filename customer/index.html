@@ -1,166 +1,395 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>دير - Monastery Guesthouse</title>
+<!--
+  Defense-in-depth CSP at the document level. The stronger, authoritative
+  copy of these headers lives in vercel.json (see /server/README.md and
+  the deployment notes) — Vercel sends them as real HTTP response headers,
+  which a meta tag can't fully replace (e.g. it can't set X-Frame-Options
+  or Strict-Transport-Security), but this still helps if the page is ever
+  served from somewhere that doesn't apply vercel.json's headers.
+-->
+<!--
+  IMPORTANT: replace https: in connect-src below with your actual proxy's
+  origin once you know it, e.g. connect-src 'self' https://proxy.yourdomain.com
+  — a bare https: allows the page to call ANY https endpoint, which is far
+  looser than it needs to be. Left as https: only until CONFIG.PROXY_URL in
+  app.js is set to its final deployed value.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="no-referrer" />
+<title>Citrine Juice Co. — Cold-Pressed, Delivered Fresh</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;900&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">⛪ نظام حجز الدير</div>
-  <nav class="nav">
-    <button class="navBtn" data-view="news">الأخبار</button>
-    <button class="navBtn" data-view="book">حجز جديد</button>
-    <button class="navBtn" data-view="bookings">حجوزاتي</button>
-    <button class="navBtn" id="authBtn" data-view="account">دخول / حسابي</button>
-  </nav>
+<!-- ============================= HEADER ============================= -->
+<header class="site-header">
+  <div class="header-inner">
+    <a href="#home" class="logo" data-nav="home">
+      <span class="logo-mark">🍊</span>
+      <span class="logo-text">CITRINE<span class="logo-sub">JUICE CO.</span></span>
+    </a>
+    <nav class="main-nav">
+      <a href="#home" data-nav="home">Home</a>
+      <a href="#shop" data-nav="shop">Shop</a>
+      <a href="#track" data-nav="track">Track Order</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-btn" id="searchToggle" aria-label="Search">🔍</button>
+      <button class="icon-btn" id="authBtn" aria-label="Account">👤 Sign In</button>
+      <button class="icon-btn cart-btn" id="cartToggle" aria-label="Cart">
+        🧺 <span class="cart-count" id="cartCount">0</span>
+      </button>
+    </div>
+  </div>
+  <div class="search-bar" id="searchBar">
+    <input type="text" id="searchInput" placeholder="Search cold-pressed juices, shots, smoothies…" />
+    <button id="searchClose" class="icon-btn">✕</button>
+  </div>
 </header>
 
 <main id="app">
 
-  <!-- ============ NEWS ============ -->
-  <section id="view-news" class="view">
-    <h1>الأخبار والمواعيد</h1>
-    <div id="newsList" class="newsList"></div>
-  </section>
-
-  <!-- ============ BOOKING ============ -->
-  <section id="view-book" class="view" hidden>
-    <h1>حجز جديد</h1>
-    <div class="tabs">
-      <button class="tabBtn active" data-tab="individual">حجز فرد</button>
-      <button class="tabBtn" data-tab="full_room">حجز غرفة كاملة</button>
-      <button class="tabBtn" data-tab="retreat">حجز خلوة (مجموعة)</button>
+  <!-- ============================= HOME VIEW ============================= -->
+  <section class="view" id="view-home">
+    <div class="banner-slider" id="bannerSlider" style="display:none;">
+      <img id="bannerImg" alt="" />
+      <div class="banner-copy">
+        <h3 id="bannerTitle"></h3>
+        <p id="bannerSub"></p>
+      </div>
     </div>
 
-    <form id="form-individual" class="bookingForm">
-      <label>النوع
-        <select name="gender" required>
-          <option value="male">ولد</option>
-          <option value="female">بنت</option>
-        </select>
-      </label>
-      <label>تاريخ الوصول <input type="date" name="arrivalDate" required /></label>
-      <label>تاريخ المغادرة <input type="date" name="departureDate" required /></label>
-      <label>الكنيسة <input type="text" name="churchName" /></label>
-      <label>رقم الهاتف <input type="tel" name="phone" required /></label>
-      <label>العنوان <input type="text" name="address" /></label>
-      <label>المحافظة <input type="text" name="governorate" /></label>
-      <label>ملاحظات <textarea name="notes"></textarea></label>
-      <button type="submit">إرسال طلب الحجز</button>
-    </form>
+    <section class="hero">
+      <div class="hero-pulp-texture"></div>
+      <div class="hero-inner">
+        <p class="eyebrow-stamp">PRESSED THIS MORNING</p>
+        <h1 class="hero-title">JUICE<br>THAT TASTES<br>LIKE THE FARM</h1>
+        <p class="hero-sub">No sugar. No shortcuts. Just fruit, crushed cold and delivered to your door within the hour.</p>
+        <div class="hero-actions">
+          <a href="#shop" class="btn btn-primary" data-nav="shop">Shop the Press ↦</a>
+          <a href="#track" class="btn btn-ghost" data-nav="track">Track an Order</a>
+        </div>
+      </div>
+      <div class="crate-row" aria-hidden="true">
+        <span class="crate-badge">100% COLD-PRESSED</span>
+        <span class="crate-badge">ZERO ADDED SUGAR</span>
+        <span class="crate-badge">DELIVERED IN 45 MIN</span>
+      </div>
+    </section>
 
-    <form id="form-full_room" class="bookingForm" hidden>
-      <label>عدد أفراد الأسرة <input type="number" name="familySize" min="1" required /></label>
-      <label>تاريخ الوصول <input type="date" name="arrivalDate" required /></label>
-      <label>تاريخ المغادرة <input type="date" name="departureDate" required /></label>
-      <label>الكنيسة <input type="text" name="churchName" /></label>
-      <label>رقم الهاتف <input type="tel" name="phone" required /></label>
-      <label>العنوان <input type="text" name="address" /></label>
-      <label>المحافظة <input type="text" name="governorate" /></label>
-      <label>ملاحظات <textarea name="notes"></textarea></label>
-      <button type="submit">إرسال طلب الحجز</button>
-    </form>
+    <section class="section-block">
+      <div class="section-head">
+        <h2>SHOP BY CRATE</h2>
+        <p>Every crate is a category — pick your press.</p>
+      </div>
+      <div class="category-rail" id="categoryRail">
+        <!-- populated by JS -->
+      </div>
+    </section>
 
-    <form id="form-retreat" class="bookingForm" hidden>
-      <label>اسم الكنيسة <input type="text" name="churchName" required /></label>
-      <label>اسم المسؤول <input type="text" name="contactName" required /></label>
-      <label>رقم الهاتف <input type="tel" name="phone" required /></label>
-      <label>عدد الأفراد <input type="number" name="groupSize" min="1" required /></label>
-      <label>أولاد أم بنات
-        <select name="gender" required>
-          <option value="male">أولاد</option>
-          <option value="female">بنات</option>
-        </select>
-      </label>
-      <label>تاريخ الوصول <input type="date" name="arrivalDate" required /></label>
-      <label>تاريخ المغادرة <input type="date" name="departureDate" required /></label>
-      <label>العنوان <input type="text" name="address" /></label>
-      <label>المحافظة <input type="text" name="governorate" /></label>
-      <label>ملاحظات <textarea name="notes"></textarea></label>
-      <button type="submit">إرسال طلب الحجز</button>
-    </form>
-
-    <div id="bookingResult" class="resultBox" hidden></div>
+    <section class="section-block alt">
+      <div class="section-head">
+        <h2>TODAY'S PRESS</h2>
+        <p>Fresh products loaded live from the shop floor.</p>
+      </div>
+      <div class="product-grid" id="homeProductGrid">
+        <!-- populated by JS -->
+      </div>
+    </section>
   </section>
 
-  <!-- ============ MY BOOKINGS ============ -->
-  <section id="view-bookings" class="view" hidden>
-    <h1>حجوزاتي</h1>
-    <div id="myBookingsList" class="bookingsList"></div>
+  <!-- ============================= SHOP VIEW ============================= -->
+  <section class="view" id="view-shop" hidden>
+    <div class="shop-header">
+      <h1>THE FULL PRESS</h1>
+      <div class="filter-row" id="filterRow">
+        <button class="chip active" data-filter="all">All</button>
+        <!-- category chips injected by JS -->
+      </div>
+    </div>
+    <div class="product-grid" id="shopProductGrid"></div>
+    <p class="empty-state" id="shopEmptyState" hidden>No juices match that search. Try another word or clear the filter.</p>
   </section>
 
-  <!-- ============ ACCOUNT ============ -->
-  <section id="view-account" class="view" hidden>
+  <!-- ============================= PRODUCT DETAIL VIEW ============================= -->
+  <section class="view" id="view-product" hidden>
+    <button class="back-link" data-nav="shop">← Back to shop</button>
+    <div class="product-detail" id="productDetail"><!-- populated by JS --></div>
+  </section>
 
-    <div id="accLoggedOut">
-      <div class="tabs">
-        <button class="tabBtn active" data-authtab="login">تسجيل الدخول</button>
-        <button class="tabBtn" data-authtab="register">إنشاء حساب</button>
-        <button class="tabBtn" data-authtab="forgot">نسيت كلمة المرور</button>
+  <!-- ============================= CART DRAWER ============================= -->
+  <aside class="cart-drawer" id="cartDrawer">
+    <div class="cart-drawer-head">
+      <h2>YOUR CRATE</h2>
+      <button class="icon-btn" id="cartClose">✕</button>
+    </div>
+    <div class="cart-items" id="cartItems"></div>
+    <div class="cart-footer">
+      <div class="cart-total-row">
+        <span>Total</span>
+        <span id="cartTotal">EGP 0.00</span>
+      </div>
+      <button class="btn btn-primary btn-block" id="checkoutBtn" disabled>Checkout ↦</button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ============================= CHECKOUT VIEW ============================= -->
+  <section class="view" id="view-checkout" hidden>
+    <h1>CHECKOUT</h1>
+    <div class="checkout-grid">
+      <form class="checkout-form" id="checkoutForm">
+        <label>
+          Full Name
+          <input type="text" id="custName" required placeholder="Amina Youssef" />
+        </label>
+        <label>
+          Phone Number
+          <input type="tel" id="custPhone" required placeholder="01xxxxxxxxx" />
+        </label>
+        <label>
+          Notes for the driver (optional)
+          <textarea id="custNotes" rows="3" placeholder="Ring the bell, leave with doorman, extra ice…"></textarea>
+        </label>
+
+        <div class="terms-box">
+          <h3>Shop Rules</h3>
+          <ul class="terms-list">
+            <li>Orders can only be cancelled within 5 minutes of placing them.</li>
+            <li>After 5 minutes, cancellation is disabled and the order proceeds.</li>
+            <li>Wrong or unreachable phone numbers are the customer's responsibility.</li>
+            <li>Delivery time may vary with traffic, weather and order volume.</li>
+            <li>Orders cannot be modified once preparation has started.</li>
+          </ul>
+          <label class="terms-check">
+            <input type="checkbox" id="termsCheck" />
+            I have read and agree to the Terms &amp; Conditions.
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="placeOrderBtn" disabled>Place Order ↦</button>
+      </form>
+
+      <div class="checkout-summary">
+        <h3>Order Summary</h3>
+        <div id="checkoutItems"></div>
+        <div class="cart-total-row"><span>Total</span><span id="checkoutTotal">EGP 0.00</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= SUCCESS VIEW ============================= -->
+  <section class="view" id="view-success" hidden>
+    <div class="success-card">
+      <div class="success-stamp">ORDER CONFIRMED</div>
+      <h1>It's on the press.</h1>
+      <p>Save this ticket — your driver will ask for the verification code on arrival.</p>
+
+      <div class="ticket">
+        <div class="ticket-row">
+          <span>Order ID</span>
+          <strong id="successOrderId">—</strong>
+        </div>
+        <div class="ticket-tear"></div>
+        <div class="ticket-row code-row">
+          <span>Verification Code</span>
+          <strong id="successCode">—</strong>
+        </div>
       </div>
 
-      <form id="loginForm" class="authForm">
-        <label>البريد الإلكتروني <input type="email" name="email" required /></label>
-        <label>كلمة المرور <input type="password" name="password" required /></label>
-        <button type="submit">دخول</button>
-        <p class="hint" id="loginHint"></p>
-      </form>
+      <div class="cancel-box" id="cancelBox">
+        <p>You can cancel within: <strong id="cancelTimer">5:00</strong></p>
+        <button class="btn btn-outline" id="cancelOrderBtn">Cancel This Order</button>
+      </div>
+      <p class="cancel-expired" id="cancelExpired" hidden>The 5-minute cancellation window has closed.</p>
 
-      <form id="registerForm" class="authForm" hidden>
-        <label>الاسم <input type="text" name="name" required /></label>
-        <label>البريد الإلكتروني <input type="email" name="email" required /></label>
-        <label>رقم الهاتف <input type="tel" name="phone" /></label>
-        <label>كلمة المرور <input type="password" name="password" minlength="8" required /></label>
-        <button type="submit">إنشاء حساب</button>
-      </form>
-
-      <form id="verifyEmailForm" class="authForm" hidden>
-        <p>تم إرسال رمز تفعيل مكوّن من 6 أرقام إلى بريدك الإلكتروني.</p>
-        <label>البريد الإلكتروني <input type="email" name="email" required /></label>
-        <label>رمز التفعيل (OTP) <input type="text" name="code" maxlength="6" required /></label>
-        <button type="submit">تفعيل الحساب</button>
-        <button type="button" id="resendOtpBtn">إعادة إرسال الرمز</button>
-      </form>
-
-      <form id="forgotForm" class="authForm" hidden>
-        <label>البريد الإلكتروني <input type="email" name="email" required /></label>
-        <button type="submit">إرسال رمز إعادة التعيين</button>
-      </form>
-
-      <form id="resetForm" class="authForm" hidden>
-        <label>البريد الإلكتروني <input type="email" name="email" required /></label>
-        <label>الرمز (OTP) <input type="text" name="code" maxlength="6" required /></label>
-        <label>كلمة المرور الجديدة <input type="password" name="newPassword" minlength="8" required /></label>
-        <button type="submit">تعيين كلمة المرور</button>
-      </form>
+      <div class="success-actions">
+        <button class="btn btn-ghost" data-nav="shop">Order More Juice</button>
+        <button class="btn btn-ghost" id="trackThisOrderBtn">Track This Order</button>
+      </div>
     </div>
+  </section>
 
-    <div id="accLoggedIn" hidden>
-      <h1>حسابي</h1>
-      <p id="profileInfo"></p>
-      <button id="logoutBtn">تسجيل الخروج</button>
+  <!-- ============================= TRACK ORDER VIEW ============================= -->
+  <section class="view" id="view-track" hidden>
+    <h1>TRACK YOUR ORDER</h1>
+    <div class="track-form">
+      <input type="text" id="trackOrderId" placeholder="Enter your Order ID (e.g. ORD-A1B2C3D4)" />
+      <button class="btn btn-primary" id="trackBtn">Track</button>
+    </div>
+    <div id="trackResult"></div>
+    <div class="gps-card" id="gpsCard" hidden>
+      <p id="driverInfo"></p>
+      <p id="gpsCoords"></p>
+    </div>
+  </section>
 
-      <h2>تغيير كلمة المرور</h2>
-      <form id="changePasswordRequestForm" class="authForm">
-        <p>سيتم إرسال رمز تأكيد إلى بريدك الإلكتروني.</p>
-        <button type="submit">إرسال رمز التأكيد</button>
-      </form>
-      <form id="changePasswordConfirmForm" class="authForm" hidden>
-        <label>كلمة المرور الحالية <input type="password" name="currentPassword" required /></label>
-        <label>كلمة المرور الجديدة <input type="password" name="newPassword" minlength="8" required /></label>
-        <label>تأكيد كلمة المرور الجديدة <input type="password" name="confirmPassword" minlength="8" required /></label>
-        <label>رمز التأكيد (OTP) <input type="text" name="code" maxlength="6" required /></label>
-        <button type="submit">تغيير كلمة المرور</button>
-      </form>
+  <!-- ============================= PROFILE VIEW ============================= -->
+  <section class="view" id="view-profile" hidden>
+    <h1>MY ACCOUNT</h1>
+
+    <div class="profile-grid">
+      <div class="profile-card">
+        <h3>Account Details</h3>
+        <label>
+          Name
+          <input type="text" id="profileName" placeholder="Your name" />
+        </label>
+        <label>
+          Phone
+          <input type="tel" id="profilePhone" placeholder="Your phone number" />
+        </label>
+        <label>
+          Email
+          <input type="email" id="profileEmail" disabled />
+        </label>
+        <button class="btn btn-primary" id="profileSaveBtn">Save Changes</button>
+
+        <div class="profile-divider"></div>
+
+        <button class="btn btn-outline btn-block" id="profileChangePwBtn" style="margin-bottom:10px;">Set / Change Password</button>
+        <button class="btn btn-ghost btn-block" id="profileLogoutBtn">Log Out</button>
+      </div>
+
+      <div class="profile-card">
+        <h3>Order History</h3>
+        <div id="profileOrders"><p class="empty-state">Loading…</p></div>
+      </div>
     </div>
   </section>
 
 </main>
 
-<div id="toast" class="toast" hidden></div>
+<!-- ============================= AUTH MODAL ============================= -->
+<div class="scrim" id="authModalScrim">
+  <div class="auth-modal">
+    <button class="icon-btn auth-modal-close" id="authModalClose">✕</button>
+
+    <div id="step1">
+      <h2>Sign In</h2>
+      <p class="auth-modal-sub">Use a one-time email code, or sign in with a password.</p>
+
+      <div id="googleSignInBtn" style="display:flex;justify-content:center;margin-bottom:18px;"></div>
+      <div class="auth-divider"><span>or</span></div>
+
+      <label>
+        Email Address
+        <input type="email" id="otpIdentifier" placeholder="you@example.com" />
+      </label>
+      <button class="btn btn-primary btn-block" id="sendOtpBtn">Send Code ↦</button>
+
+      <p class="auth-modal-links">
+        <a href="#" id="showPasswordLoginLink">Sign in with a password instead</a>
+        &nbsp;·&nbsp;
+        <a href="#" id="showRegisterLink">Create an account</a>
+      </p>
+    </div>
+
+    <div id="step2" hidden>
+      <h2>Enter Your Code</h2>
+      <p class="auth-modal-sub">Check your email for the 6-digit code.</p>
+      <label>
+        Verification Code
+        <input type="text" id="otpCode" inputmode="numeric" maxlength="6" placeholder="123456" />
+      </label>
+      <label>
+        Your Name (first time only)
+        <input type="text" id="userName" placeholder="Amina Youssef" />
+      </label>
+      <button class="btn btn-primary btn-block" id="verifyOtpBtn">Verify &amp; Sign In ↦</button>
+    </div>
+
+    <div id="stepPasswordLogin" hidden>
+      <h2>Sign In</h2>
+      <p class="auth-modal-sub">Sign in with your email and password.</p>
+      <label>
+        Email Address
+        <input type="email" id="loginEmail" placeholder="you@example.com" />
+      </label>
+      <label>
+        Password
+        <input type="password" id="loginPassword" placeholder="Your password" />
+      </label>
+      <button class="btn btn-primary btn-block" id="loginSubmitBtn">Sign In ↦</button>
+      <p class="auth-modal-links">
+        <a href="#" id="backToStep1FromLogin">← Use a one-time code instead</a>
+      </p>
+    </div>
+
+    <div id="stepRegister" hidden>
+      <h2>Create Account</h2>
+      <p class="auth-modal-sub">Set a password so you can sign in faster next time.</p>
+      <label>
+        Name
+        <input type="text" id="registerName" placeholder="Amina Youssef" />
+      </label>
+      <label>
+        Email Address
+        <input type="email" id="registerEmail" placeholder="you@example.com" />
+      </label>
+      <label>
+        Phone
+        <input type="tel" id="registerPhone" placeholder="01xxxxxxxxx" />
+      </label>
+      <label>
+        Password
+        <input type="password" id="registerPassword" placeholder="At least 8 characters" />
+      </label>
+      <button class="btn btn-primary btn-block" id="registerSubmitBtn">Create Account ↦</button>
+      <p class="auth-modal-links">
+        <a href="#" id="backToStep1FromRegister">← Back to sign in</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================= CHANGE PASSWORD MODAL ============================= -->
+<div class="scrim" id="accountModalScrim">
+  <div class="auth-modal">
+    <button class="icon-btn auth-modal-close" id="accountModalClose">✕</button>
+
+    <div id="pwStep1">
+      <h2>Set / Change Password</h2>
+      <p class="auth-modal-sub">We'll email you a code to confirm it's you.</p>
+      <label>
+        Email Address
+        <input type="email" id="pwIdentifier" placeholder="you@example.com" />
+      </label>
+      <button class="btn btn-primary btn-block" id="pwSendCodeBtn">Send Code ↦</button>
+    </div>
+
+    <div id="pwStep2" hidden>
+      <h2>New Password</h2>
+      <p class="auth-modal-sub">Check your email for the 6-digit code.</p>
+      <label>
+        Verification Code
+        <input type="text" id="pwCode" inputmode="numeric" maxlength="6" placeholder="123456" />
+      </label>
+      <label>
+        New Password
+        <input type="password" id="pwNew" placeholder="At least 8 characters" />
+      </label>
+      <button class="btn btn-primary btn-block" id="pwSubmitBtn">Update Password ↦</button>
+    </div>
+
+    <div id="pwSuccess" hidden>
+      <h2>✓ Password Updated</h2>
+      <p class="auth-modal-sub">You've been signed out everywhere else as a precaution. A confirmation email is on its way.</p>
+      <button class="btn btn-primary btn-block" id="pwDoneBtn">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================= TOAST ============================= -->
+<div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
 </body>

@@ -71,15 +71,6 @@ model User {
   isEmailVerified Boolean   @default(false) @map("is_email_verified")
   isActive        Boolean   @default(true) @map("is_active")
 
-  // Monastery guest-house fields (in addition to the juice-shop customer
-  // fields above — same User table serves both apps).
-  churchName      String?   @map("church_name") // اسم الكنيسة
-  age             Int?
-
-  bookingRequests    BookingRequest[] @relation("GuestBookings")
-  reviewedBookings   BookingRequest[] @relation("ReviewedBookings")
-  authoredNews       News[]           @relation("NewsAuthor")
-
   // legacy OTP columns kept for backward compatibility with existing
   // /auth/request-otp flow; superseded by the OtpCode table for new code.
   otpCode         String?   @map("otp_code")
@@ -447,94 +438,4 @@ model AuditLog {
   @@index([userId])
   @@index([action])
   @@map("audit_logs")
-}
-
-// ---------------------------------------------------------------------------
-// Monastery guest-house booking system (shares the same User/Role tables as
-// the juice-shop app above — this is a request/approval workflow, not
-// instant-confirm: a guest submits a request, a COORDINATOR staff member
-// approves or rejects it, and only a SUPERVISOR can set how many beds a
-// room actually has).
-// ---------------------------------------------------------------------------
-
-enum RoomType {
-  PRIVATE // خلوة / أوضة لوحده
-  SHARED  // أوضة مشتركة — يسكن مع ناس تانية
-}
-
-enum RoomGender {
-  MALE   // للشباب
-  FEMALE // للسيدات
-  ANY    // غير مخصصة لجنس معين (عائلات مثلاً)
-}
-
-enum BookingStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
-model Room {
-  id        String     @id @default(uuid())
-  name      String     // "خلوة 3", "أوضة شباب 1"
-  type      RoomType
-  gender    RoomGender @default(ANY)
-  // Set exclusively by a SUPERVISOR — never inferred, never guest-editable.
-  capacity  Int        @map("capacity")
-  isActive  Boolean    @default(true) @map("is_active")
-  notes     String?
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
-
-  bookingRequests BookingRequest[]
-
-  @@map("mms_rooms")
-}
-
-model BookingRequest {
-  id           String        @id @default(uuid())
-  guestId      String        @map("guest_id")
-  guest        User          @relation("GuestBookings", fields: [guestId], references: [id])
-
-  type         RoomType
-  gender       RoomGender
-  headcount    Int
-  checkInDate  DateTime      @map("check_in_date") @db.Date
-  nights       Int
-  checkOutDate DateTime      @map("check_out_date") @db.Date
-
-  // Assigned by the coordinator, typically at approval time — null before that.
-  roomId       String?       @map("room_id")
-  room         Room?         @relation(fields: [roomId], references: [id])
-
-  status       BookingStatus @default(PENDING)
-  guestNotes   String?       @map("guest_notes")
-  reviewNotes  String?       @map("review_notes") // e.g. rejection reason
-
-  reviewedById String?       @map("reviewed_by_id")
-  reviewedBy   User?         @relation("ReviewedBookings", fields: [reviewedById], references: [id])
-  reviewedAt   DateTime?     @map("reviewed_at")
-
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
-
-  @@index([checkInDate, checkOutDate])
-  @@index([status])
-  @@index([guestId])
-  @@map("mms_booking_requests")
-}
-
-model News {
-  id          String    @id @default(uuid())
-  title       String
-  body        String
-  imageUrl    String?   @map("image_url")
-  isPublished Boolean   @default(true) @map("is_published")
-  authorId    String?   @map("author_id")
-  author      User?     @relation("NewsAuthor", fields: [authorId], references: [id])
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  @@map("mms_news")
 }
